@@ -317,7 +317,8 @@ Update metadata for a dataset.
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
 - `keywords` (optional): List of keywords
-- `regions` (optional): List of regions
+- `regions` (optional): List of region IDs, names, or codes
+- `tkeywords` (optional): List of thesaurus keyword IDs, names, or codes
 
 **Example:**
 ```python
@@ -326,7 +327,8 @@ update_dataset_metadata(
     title="Updated Dataset Title",
     abstract="Updated description",
     keywords=["climate", "temperature", "global"],
-    regions=["global", "europe"]
+    regions=["global", "europe"],
+    tkeywords=["climate-change", 42]
 )
 ```
 
@@ -562,7 +564,8 @@ if status.get("status") == "finished":
         update_dataset_metadata(
             dataset_id=int(dataset_id.split("/")[-1]),
             keywords=["research", "field-data"],
-            regions=["east-africa"]
+            regions=["east-africa"],
+            tkeywords=["ocean-data"]
         )
 
 # 5. Set permissions

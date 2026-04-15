@@ -10,7 +10,7 @@ import asyncio
 import base64
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -713,7 +713,8 @@ async def update_dataset_metadata(
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
     keywords: Optional[List[str]] = None,
-    regions: Optional[List[str]] = None,
+    regions: Optional[List[Union[int, str]]] = None,
+    tkeywords: Optional[List[Union[int, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Update metadata for a dataset.
@@ -724,30 +725,36 @@ async def update_dataset_metadata(
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
         keywords: List of keywords (optional)
-        regions: List of regions (optional)
+        regions: List of region IDs, names, or codes (optional)
+        tkeywords: List of thesaurus keyword IDs, names, or codes (optional)
 
     Returns:
         Dictionary containing update status
     """
     client = get_client()
 
-    data = {}
+    vals: Dict[str, Any] = {}
     if title:
-        data["title"] = title
+        vals["title"] = title
     if abstract:
-        data["abstract"] = abstract
+        vals["abstract"] = abstract
     if license_id:
-        data["license"] = license_id
-    if keywords:
-        data["keywords"] = keywords
-    if regions:
-        data["regions"] = regions
+        vals["license"] = license_id
 
-    if not data:
+    if not vals and keywords is None and regions is None and tkeywords is None:
         return {"error": "No metadata fields provided for update"}
 
+    data: Dict[str, Any] = {"vals": vals}
+
+    if keywords is not None:
+        data["keywords"] = keywords
+    if regions is not None:
+        data["regions"] = regions
+    if tkeywords is not None:
+        data["tkeywords"] = tkeywords
+
     try:
-        result = await client.request("PATCH", f"datasets/{dataset_id}", data=data)
+        result = await client.request("PUT", f"resources/{dataset_id}/update", data=data)
         return result
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}

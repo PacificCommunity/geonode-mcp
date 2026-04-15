@@ -240,7 +240,7 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
-- `/api/v2/datasets/{id}` - Dataset-specific operations
+- `/api/v2/resources/{id}/update` - Resource metadata update operations
 - `/api/v2/uploads/upload` - Dataset uploads
 - `/api/v2/documents` - Document operations
 - `/api/v2/users` - User management
