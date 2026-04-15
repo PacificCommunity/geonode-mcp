@@ -4,7 +4,7 @@ Command-line interface for MCP GeoNode Server
 """
 
 import argparse
-import asyncio
+import logging
 import sys
 from mcp_geonode.server import main
 
@@ -70,8 +70,8 @@ def main_cli():
     args = parser.parse_args()
     
     if args.debug:
-        import logging
-        logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger("mcp_geonode").setLevel(logging.DEBUG)
         print("Debug logging enabled")
     
     print("Starting MCP GeoNode Server...")

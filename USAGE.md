@@ -42,9 +42,10 @@ This is the most convenient method for persistent configuration.
    GEONODE_PASSWORD=your_password
    # GEONODE_TOKEN=your_api_token
    
-   # Optional
-   GEONODE_VERIFY_SSL=true
-   GEONODE_MAX_CONCURRENT_UPLOADS=5
+    # Optional
+    GEONODE_VERIFY_SSL=true
+    GEONODE_MAX_CONCURRENT_UPLOADS=5
+    GEONODE_LOG_FILE=./geonode-mcp.log
    ```
 
 3. **Start the server:**
@@ -53,6 +54,7 @@ This is the most convenient method for persistent configuration.
    ```
 
 The server will automatically load the configuration on startup.
+Server logs are also written to `./geonode-mcp.log` by default so they remain accessible even when an MCP host does not display stderr. Set `GEONODE_LOG_FILE` to override the path.
 
 #### Using Environment Variables
 
@@ -168,6 +170,7 @@ Dictionary with configuration information including:
 - `has_username`: Whether username is configured
 - `has_token`: Whether token is configured  
 - `verify_ssl`: SSL verification setting
+- `log_file`: Absolute path to the persistent server log file
 
 **Example:**
 ```python
@@ -316,7 +319,6 @@ Update metadata for a dataset.
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
-- `keywords` (optional): List of keywords
 
 **Example:**
 ```python
@@ -324,7 +326,7 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    keywords=["climate", "temperature", "global"]
+    license_id=7
 )
 ```
 
@@ -559,7 +561,7 @@ if status.get("status") == "finished":
     if dataset_id:
         update_dataset_metadata(
             dataset_id=int(dataset_id.split("/")[-1]),
-            keywords=["research", "field-data"]
+            title="Ocean field data"
         )
 
 # 5. Set permissions

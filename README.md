@@ -11,7 +11,7 @@ A Model Context Protocol (MCP) server for interacting with GeoNode APIs. This se
 - **Download**: Generate download URLs for datasets and documents
 - **Upload**: Upload datasets (Shapefiles, GeoTIFFs, CSV) and documents
 - **Delete**: Remove resources from GeoNode
-- **Metadata Updates**: Update dataset titles, abstracts, licenses, and keywords
+- **Metadata Updates**: Update dataset titles, abstracts, and licenses
 
 ### User Management
 - **List Users**: Browse users with pagination
@@ -67,6 +67,7 @@ nano .env
 - `GEONODE_TOKEN` - Bearer token for authentication (alternative to username/password)
 - `GEONODE_VERIFY_SSL` - Verify SSL certificates (default: true)
 - `GEONODE_MAX_CONCURRENT_UPLOADS` - Maximum concurrent upload requests handled by the server (default: 5)
+- `GEONODE_LOG_FILE` - Persistent server log file path (default: `./geonode-mcp.log`)
 
 **Example .env file:**
 ```env
@@ -77,6 +78,8 @@ GEONODE_VERIFY_SSL=true
 ```
 
 The server will automatically load configuration on startup. Use the `get_configuration_status` tool to check the current configuration.
+
+Server logs are written to `./geonode-mcp.log` by default, which is useful when the MCP host hides stderr. Set `GEONODE_LOG_FILE` to change the path.
 
 ### Authentication Options
 
@@ -194,6 +197,17 @@ create_user(
 )
 ```
 
+### Updating Dataset Metadata
+```python
+# Update supported dataset fields
+update_dataset_metadata(
+    dataset_id=123,
+    title="Updated Dataset Title",
+    abstract="Updated description",
+    license_id=7
+)
+```
+
 ## Available Tools
 
 ### Configuration
@@ -209,7 +223,7 @@ create_user(
 - `search_resources`: Search resources by text query
 - `download_resource`: Get download URLs
 - `delete_resource`: Remove resources
-- `update_dataset_metadata`: Update dataset metadata
+- `update_dataset_metadata`: Update dataset title, abstract, and license
 - `list_linked_resources`: Find linked resources
 
 ### Data Upload
@@ -240,7 +254,7 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
-- `/api/v2/datasets/{id}` - Dataset-specific operations
+- `/api/v2/datasets/{id}` - Dataset metadata updates via PATCH
 - `/api/v2/uploads/upload` - Dataset uploads
 - `/api/v2/documents` - Document operations
 - `/api/v2/users` - User management

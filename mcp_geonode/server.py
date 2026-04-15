@@ -10,7 +10,8 @@ import asyncio
 import base64
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -25,9 +26,78 @@ except ImportError:
     # python-dotenv not installed, continue without .env support
     pass
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+
+def _resolve_log_file_path() -> Path:
+    """Resolve the server log file path from the environment or default location."""
+    raw_path = os.getenv("GEONODE_LOG_FILE", "geonode-mcp.log")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _configure_logging() -> Path:
+    """Configure stderr logging plus a persistent file log for MCP hosts that hide stderr."""
+    logging.basicConfig(level=logging.INFO)
+
+    log_file_path = _resolve_log_file_path()
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    package_logger = logging.getLogger("mcp_geonode")
+    existing_handler = next(
+        (
+            handler
+            for handler in package_logger.handlers
+            if isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename) == log_file_path
+        ),
+        None,
+    )
+    if existing_handler is None:
+        file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        package_logger.addHandler(file_handler)
+
+    return log_file_path
+
+
+LOG_FILE_PATH = _configure_logging()
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_for_logging(value: Any) -> Any:
+    """Sanitize request data for debug logging."""
+    if isinstance(value, dict):
+        return {key: _sanitize_for_logging(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_for_logging(item) for item in value]
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    return value
+
+
+def _summarize_files(files: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Summarize uploaded files without logging raw binary content."""
+    if not files:
+        return None
+
+    summary: Dict[str, Any] = {}
+    for field_name, file_value in files.items():
+        if isinstance(file_value, tuple):
+            filename = file_value[0] if len(file_value) > 0 else None
+            content = file_value[1] if len(file_value) > 1 else None
+            content_type = file_value[2] if len(file_value) > 2 else None
+            size = len(content) if isinstance(content, (bytes, bytearray)) else None
+            summary[field_name] = {
+                "filename": filename,
+                "content_type": content_type,
+                "size": size,
+            }
+        else:
+            summary[field_name] = _sanitize_for_logging(file_value)
+    return summary
 
 
 def _load_max_concurrent_uploads() -> int:
@@ -72,6 +142,7 @@ class GeoNodeConfig(BaseModel):
         - GEONODE_TOKEN: Bearer token for authentication (optional)
         - GEONODE_VERIFY_SSL: Whether to verify SSL certificates (default: true)
         - GEONODE_MAX_CONCURRENT_UPLOADS: Upload concurrency limit (default: 5)
+        - GEONODE_LOG_FILE: File path for persistent server logs (default: ./geonode-mcp.log)
 
         Returns:
             GeoNodeConfig instance if GEONODE_BASE_URL is set, None otherwise
@@ -135,6 +206,15 @@ class GeoNodeClient:
     ) -> Dict[str, Any]:
         """Make HTTP request to GeoNode API."""
         url = f"{self.api_base}/{endpoint.lstrip('/')}"
+        request_context = {
+            "method": method,
+            "url": url,
+            "params": _sanitize_for_logging(params),
+            "payload": _sanitize_for_logging(data),
+            "files": _summarize_files(files),
+        }
+
+        logger.debug("GeoNode API request: %s", request_context)
 
         async with httpx.AsyncClient(verify=self.config.verify_ssl) as client:
             try:
@@ -156,6 +236,16 @@ class GeoNodeClient:
                         method, url, headers=self.headers, params=params, json=data
                     )
 
+                logger.debug(
+                    "GeoNode API response: %s",
+                    {
+                        "method": method,
+                        "url": url,
+                        "status_code": response.status_code,
+                        "content_type": response.headers.get("content-type", ""),
+                    },
+                )
+
                 response.raise_for_status()
 
                 # Handle different content types
@@ -166,10 +256,23 @@ class GeoNodeClient:
                     return {"content": response.text, "content_type": content_type}
 
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error {e.response.status_code}: {e.response.text}")
+                logger.error(
+                    "HTTP error %s for %s %s with request=%s: %s",
+                    e.response.status_code,
+                    method,
+                    url,
+                    request_context,
+                    e.response.text,
+                )
                 raise
             except Exception as e:
-                logger.error(f"Request failed: {e}")
+                logger.error(
+                    "Request failed for %s %s with request=%s: %s",
+                    method,
+                    url,
+                    request_context,
+                    e,
+                )
                 raise
 
 
@@ -242,6 +345,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "has_token": False,
         "verify_ssl": True,
         "max_concurrent_uploads": MAX_CONCURRENT_UPLOADS,
+        "log_file": str(LOG_FILE_PATH),
         "env_vars_available": {},
     }
 
@@ -253,6 +357,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "GEONODE_TOKEN": "***" if os.getenv("GEONODE_TOKEN") else None,
         "GEONODE_VERIFY_SSL": os.getenv("GEONODE_VERIFY_SSL", "true"),
         "GEONODE_MAX_CONCURRENT_UPLOADS": os.getenv("GEONODE_MAX_CONCURRENT_UPLOADS"),
+        "GEONODE_LOG_FILE": os.getenv("GEONODE_LOG_FILE"),
     }
 
     status["env_vars_available"] = {k: v is not None for k, v in env_vars.items()}
@@ -712,7 +817,6 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
-    keywords: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Update metadata for a dataset.
@@ -722,22 +826,19 @@ async def update_dataset_metadata(
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
-        keywords: List of keywords (optional)
 
     Returns:
         Dictionary containing update status
     """
     client = get_client()
 
-    data = {}
+    data: Dict[str, Any] = {}
     if title:
         data["title"] = title
     if abstract:
         data["abstract"] = abstract
     if license_id:
         data["license"] = license_id
-    if keywords:
-        data["keywords"] = keywords
 
     if not data:
         return {"error": "No metadata fields provided for update"}
