@@ -817,7 +817,6 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
-    tkeywords: Optional[List[Union[int, str]]] = None,
 ) -> Dict[str, Any]:
     """
     Update metadata for a dataset.
@@ -827,33 +826,25 @@ async def update_dataset_metadata(
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
-        tkeywords: List of thesaurus keyword IDs, names, or codes (optional)
 
     Returns:
         Dictionary containing update status
     """
     client = get_client()
 
-    vals: Dict[str, Any] = {}
+    data: Dict[str, Any] = {}
     if title:
-        vals["title"] = title
+        data["title"] = title
     if abstract:
-        vals["abstract"] = abstract
+        data["abstract"] = abstract
     if license_id:
-        vals["license"] = license_id
+        data["license"] = license_id
 
-    if not vals and tkeywords is None:
+    if not data:
         return {"error": "No metadata fields provided for update"}
 
-    data: Dict[str, Any] = {"vals": vals}
-
-    if tkeywords is not None:
-        data["tkeywords"] = tkeywords
-
     try:
-        result = await client.request(
-            "PUT", f"resources/{dataset_id}/update", data=data
-        )
+        result = await client.request("PATCH", f"datasets/{dataset_id}", data=data)
         return result
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}

@@ -319,7 +319,6 @@ Update metadata for a dataset.
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
-- `tkeywords` (optional): List of thesaurus keyword IDs, names, or codes
 
 **Example:**
 ```python
@@ -327,7 +326,7 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    tkeywords=["climate-change", 42]
+    license_id=7
 )
 ```
 
@@ -562,7 +561,7 @@ if status.get("status") == "finished":
     if dataset_id:
         update_dataset_metadata(
             dataset_id=int(dataset_id.split("/")[-1]),
-            tkeywords=["ocean-data"]
+            title="Ocean field data"
         )
 
 # 5. Set permissions
