@@ -42,9 +42,10 @@ This is the most convenient method for persistent configuration.
    GEONODE_PASSWORD=your_password
    # GEONODE_TOKEN=your_api_token
    
-   # Optional
-   GEONODE_VERIFY_SSL=true
-   GEONODE_MAX_CONCURRENT_UPLOADS=5
+    # Optional
+    GEONODE_VERIFY_SSL=true
+    GEONODE_MAX_CONCURRENT_UPLOADS=5
+    GEONODE_LOG_FILE=./geonode-mcp.log
    ```
 
 3. **Start the server:**
@@ -53,6 +54,7 @@ This is the most convenient method for persistent configuration.
    ```
 
 The server will automatically load the configuration on startup.
+Server logs are also written to `./geonode-mcp.log` by default so they remain accessible even when an MCP host does not display stderr. Set `GEONODE_LOG_FILE` to override the path.
 
 #### Using Environment Variables
 
@@ -168,6 +170,7 @@ Dictionary with configuration information including:
 - `has_username`: Whether username is configured
 - `has_token`: Whether token is configured  
 - `verify_ssl`: SSL verification setting
+- `log_file`: Absolute path to the persistent server log file
 
 **Example:**
 ```python

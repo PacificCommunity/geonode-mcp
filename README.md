@@ -67,6 +67,7 @@ nano .env
 - `GEONODE_TOKEN` - Bearer token for authentication (alternative to username/password)
 - `GEONODE_VERIFY_SSL` - Verify SSL certificates (default: true)
 - `GEONODE_MAX_CONCURRENT_UPLOADS` - Maximum concurrent upload requests handled by the server (default: 5)
+- `GEONODE_LOG_FILE` - Persistent server log file path (default: `./geonode-mcp.log`)
 
 **Example .env file:**
 ```env
@@ -77,6 +78,8 @@ GEONODE_VERIFY_SSL=true
 ```
 
 The server will automatically load configuration on startup. Use the `get_configuration_status` tool to check the current configuration.
+
+Server logs are written to `./geonode-mcp.log` by default, which is useful when the MCP host hides stderr. Set `GEONODE_LOG_FILE` to change the path.
 
 ### Authentication Options
 

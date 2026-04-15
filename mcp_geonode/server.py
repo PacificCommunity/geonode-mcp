@@ -10,6 +10,7 @@ import asyncio
 import base64
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
@@ -25,8 +26,44 @@ except ImportError:
     # python-dotenv not installed, continue without .env support
     pass
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+
+def _resolve_log_file_path() -> Path:
+    """Resolve the server log file path from the environment or default location."""
+    raw_path = os.getenv("GEONODE_LOG_FILE", "geonode-mcp.log")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _configure_logging() -> Path:
+    """Configure stderr logging plus a persistent file log for MCP hosts that hide stderr."""
+    logging.basicConfig(level=logging.INFO)
+
+    log_file_path = _resolve_log_file_path()
+    log_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    package_logger = logging.getLogger("mcp_geonode")
+    existing_handler = next(
+        (
+            handler
+            for handler in package_logger.handlers
+            if isinstance(handler, logging.FileHandler)
+            and Path(handler.baseFilename) == log_file_path
+        ),
+        None,
+    )
+    if existing_handler is None:
+        file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        package_logger.addHandler(file_handler)
+
+    return log_file_path
+
+
+LOG_FILE_PATH = _configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +142,7 @@ class GeoNodeConfig(BaseModel):
         - GEONODE_TOKEN: Bearer token for authentication (optional)
         - GEONODE_VERIFY_SSL: Whether to verify SSL certificates (default: true)
         - GEONODE_MAX_CONCURRENT_UPLOADS: Upload concurrency limit (default: 5)
+        - GEONODE_LOG_FILE: File path for persistent server logs (default: ./geonode-mcp.log)
 
         Returns:
             GeoNodeConfig instance if GEONODE_BASE_URL is set, None otherwise
@@ -228,7 +266,13 @@ class GeoNodeClient:
                 )
                 raise
             except Exception as e:
-                logger.error("Request failed for %s %s with request=%s: %s", method, url, request_context, e)
+                logger.error(
+                    "Request failed for %s %s with request=%s: %s",
+                    method,
+                    url,
+                    request_context,
+                    e,
+                )
                 raise
 
 
@@ -301,6 +345,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "has_token": False,
         "verify_ssl": True,
         "max_concurrent_uploads": MAX_CONCURRENT_UPLOADS,
+        "log_file": str(LOG_FILE_PATH),
         "env_vars_available": {},
     }
 
@@ -312,6 +357,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "GEONODE_TOKEN": "***" if os.getenv("GEONODE_TOKEN") else None,
         "GEONODE_VERIFY_SSL": os.getenv("GEONODE_VERIFY_SSL", "true"),
         "GEONODE_MAX_CONCURRENT_UPLOADS": os.getenv("GEONODE_MAX_CONCURRENT_UPLOADS"),
+        "GEONODE_LOG_FILE": os.getenv("GEONODE_LOG_FILE"),
     }
 
     status["env_vars_available"] = {k: v is not None for k, v in env_vars.items()}
@@ -813,7 +859,9 @@ async def update_dataset_metadata(
         data["tkeywords"] = tkeywords
 
     try:
-        result = await client.request("PUT", f"resources/{dataset_id}/update", data=data)
+        result = await client.request(
+            "PUT", f"resources/{dataset_id}/update", data=data
+        )
         return result
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}
