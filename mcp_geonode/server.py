@@ -30,6 +30,39 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_for_logging(value: Any) -> Any:
+    """Sanitize request data for debug logging."""
+    if isinstance(value, dict):
+        return {key: _sanitize_for_logging(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_for_logging(item) for item in value]
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    return value
+
+
+def _summarize_files(files: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Summarize uploaded files without logging raw binary content."""
+    if not files:
+        return None
+
+    summary: Dict[str, Any] = {}
+    for field_name, file_value in files.items():
+        if isinstance(file_value, tuple):
+            filename = file_value[0] if len(file_value) > 0 else None
+            content = file_value[1] if len(file_value) > 1 else None
+            content_type = file_value[2] if len(file_value) > 2 else None
+            size = len(content) if isinstance(content, (bytes, bytearray)) else None
+            summary[field_name] = {
+                "filename": filename,
+                "content_type": content_type,
+                "size": size,
+            }
+        else:
+            summary[field_name] = _sanitize_for_logging(file_value)
+    return summary
+
+
 def _load_max_concurrent_uploads() -> int:
     """Load and validate upload concurrency limit from environment."""
     raw_value = os.getenv("GEONODE_MAX_CONCURRENT_UPLOADS", "5")
@@ -135,6 +168,15 @@ class GeoNodeClient:
     ) -> Dict[str, Any]:
         """Make HTTP request to GeoNode API."""
         url = f"{self.api_base}/{endpoint.lstrip('/')}"
+        request_context = {
+            "method": method,
+            "url": url,
+            "params": _sanitize_for_logging(params),
+            "payload": _sanitize_for_logging(data),
+            "files": _summarize_files(files),
+        }
+
+        logger.debug("GeoNode API request: %s", request_context)
 
         async with httpx.AsyncClient(verify=self.config.verify_ssl) as client:
             try:
@@ -156,6 +198,16 @@ class GeoNodeClient:
                         method, url, headers=self.headers, params=params, json=data
                     )
 
+                logger.debug(
+                    "GeoNode API response: %s",
+                    {
+                        "method": method,
+                        "url": url,
+                        "status_code": response.status_code,
+                        "content_type": response.headers.get("content-type", ""),
+                    },
+                )
+
                 response.raise_for_status()
 
                 # Handle different content types
@@ -166,10 +218,17 @@ class GeoNodeClient:
                     return {"content": response.text, "content_type": content_type}
 
             except httpx.HTTPStatusError as e:
-                logger.error(f"HTTP error {e.response.status_code}: {e.response.text}")
+                logger.error(
+                    "HTTP error %s for %s %s with request=%s: %s",
+                    e.response.status_code,
+                    method,
+                    url,
+                    request_context,
+                    e.response.text,
+                )
                 raise
             except Exception as e:
-                logger.error(f"Request failed: {e}")
+                logger.error("Request failed for %s %s with request=%s: %s", method, url, request_context, e)
                 raise
 
 
