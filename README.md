@@ -197,6 +197,17 @@ create_user(
 )
 ```
 
+### Updating Dataset Metadata
+```python
+# Update supported dataset fields
+update_dataset_metadata(
+    dataset_id=123,
+    title="Updated Dataset Title",
+    abstract="Updated description",
+    license_id=7
+)
+```
+
 ## Available Tools
 
 ### Configuration
@@ -212,7 +223,7 @@ create_user(
 - `search_resources`: Search resources by text query
 - `download_resource`: Get download URLs
 - `delete_resource`: Remove resources
-- `update_dataset_metadata`: Update dataset metadata
+- `update_dataset_metadata`: Update dataset title, abstract, and license
 - `list_linked_resources`: Find linked resources
 
 ### Data Upload
@@ -243,7 +254,7 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
-- `/api/v2/resources/{id}/update` - Resource metadata update operations
+- `/api/v2/datasets/{id}` - Dataset metadata updates via PATCH
 - `/api/v2/uploads/upload` - Dataset uploads
 - `/api/v2/documents` - Document operations
 - `/api/v2/users` - User management
