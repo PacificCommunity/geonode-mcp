@@ -817,8 +817,6 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
-    keywords: Optional[List[str]] = None,
-    regions: Optional[List[Union[int, str]]] = None,
     tkeywords: Optional[List[Union[int, str]]] = None,
 ) -> Dict[str, Any]:
     """
@@ -829,8 +827,6 @@ async def update_dataset_metadata(
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
-        keywords: List of keywords (optional)
-        regions: List of region IDs, names, or codes (optional)
         tkeywords: List of thesaurus keyword IDs, names, or codes (optional)
 
     Returns:
@@ -846,15 +842,11 @@ async def update_dataset_metadata(
     if license_id:
         vals["license"] = license_id
 
-    if not vals and keywords is None and regions is None and tkeywords is None:
+    if not vals and tkeywords is None:
         return {"error": "No metadata fields provided for update"}
 
     data: Dict[str, Any] = {"vals": vals}
 
-    if keywords is not None:
-        data["keywords"] = keywords
-    if regions is not None:
-        data["regions"] = regions
     if tkeywords is not None:
         data["tkeywords"] = tkeywords
 

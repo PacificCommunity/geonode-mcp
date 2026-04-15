@@ -229,7 +229,7 @@ def show_usage_examples():
                 "configure_geonode(base_url='https://your-geonode.org', username='user', password='pass')",
                 "upload_dataset(base_file_path='/path/to/data.shp', title='My Dataset')",
                 "check_upload_status(execution_id='abc-123')",
-                "update_dataset_metadata(dataset_id=456, abstract='Updated description', regions=['global'], tkeywords=['climate-change'])"
+                "update_dataset_metadata(dataset_id=456, abstract='Updated description', tkeywords=['climate-change'])"
             ]
         },
         {

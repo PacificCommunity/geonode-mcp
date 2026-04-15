@@ -11,7 +11,7 @@ A Model Context Protocol (MCP) server for interacting with GeoNode APIs. This se
 - **Download**: Generate download URLs for datasets and documents
 - **Upload**: Upload datasets (Shapefiles, GeoTIFFs, CSV) and documents
 - **Delete**: Remove resources from GeoNode
-- **Metadata Updates**: Update dataset titles, abstracts, licenses, and keywords
+- **Metadata Updates**: Update dataset titles, abstracts, licenses, and thesaurus keywords
 
 ### User Management
 - **List Users**: Browse users with pagination
