@@ -805,7 +805,7 @@ async def delete_resource(resource_id: int) -> Dict[str, Any]:
     client = get_client()
 
     try:
-        await client.request("DELETE", f"resources/{resource_id}/delete")
+        await client.request("DELETE", f"resources/{resource_id}")
         return {"message": f"Resource {resource_id} deleted successfully"}
     except Exception as e:
         return {"error": f"Failed to delete resource: {e}"}
