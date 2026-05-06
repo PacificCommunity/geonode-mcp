@@ -315,10 +315,18 @@ delete_resource(resource_id=123)
 Update metadata for a dataset.
 
 **Parameters:**
-- `dataset_id` (required): ID of the dataset
+- `dataset_id` (required): Metadata instance ID to update
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
+- `regions` (optional): List of region labels
+- `temporal_extent_start` (optional): Temporal extent start datetime/date
+- `temporal_extent_end` (optional): Temporal extent end datetime/date
+- `attribution` (optional): Attribution statement
+- `maintenance_frequency` (optional): Maintenance frequency value
+- `supplemental_information` (optional): Supplemental information text
+- `tkeywords` (optional): List of thesaurus-to-keyword-ID maps.
+  Example: `[{"themes": ["exact-id-1", "exact-id-2"]}, {"place": ["exact-id-3"]}]`
 
 **Example:**
 ```python
@@ -326,9 +334,21 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    license_id=7
+    license_id=7,
+    regions=["Pacific", "Melanesia"],
+    temporal_extent_start="2020-01-01",
+    temporal_extent_end="2024-12-31",
+    attribution="Pacific Community (SPC)",
+    maintenance_frequency="annually",
+    supplemental_information="Compiled from validated field observations.",
+    tkeywords=[
+        {"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]},
+        {"place": ["PASTE_OTHER_EXACT_ID"]},
+    ],
 )
 ```
+
+Use `/api/v2/metadata/autocomplete/thesaurus/{thesaurus}/keywords?q=...` first to get exact keyword IDs, then pass those IDs in `tkeywords`.
 
 #### `list_linked_resources`
 List resources linked to a specific resource.

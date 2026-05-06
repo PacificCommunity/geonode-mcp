@@ -11,7 +11,7 @@ import base64
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -817,15 +817,30 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
+    regions: Optional[List[str]] = None,
+    temporal_extent_start: Optional[str] = None,
+    temporal_extent_end: Optional[str] = None,
+    attribution: Optional[str] = None,
+    maintenance_frequency: Optional[str] = None,
+    supplemental_information: Optional[str] = None,
+    tkeywords: Optional[List[Dict[str, List[str]]]] = None,
 ) -> Dict[str, Any]:
     """
     Update metadata for a dataset.
 
     Args:
-        dataset_id: ID of the dataset to update
+        dataset_id: ID of the metadata instance to update
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
+        regions: Region labels to associate with the metadata record
+        temporal_extent_start: Temporal extent start date/time
+        temporal_extent_end: Temporal extent end date/time
+        attribution: Attribution statement
+        maintenance_frequency: Maintenance frequency value
+        supplemental_information: Supplemental information text
+        tkeywords: List of dictionaries mapping thesaurus name to keyword IDs.
+            Example: [{"themes": ["id1", "id2"]}, {"place": ["id3"]}]
 
     Returns:
         Dictionary containing update status
@@ -833,18 +848,86 @@ async def update_dataset_metadata(
     client = get_client()
 
     data: Dict[str, Any] = {}
-    if title:
+    if title is not None:
         data["title"] = title
-    if abstract:
+    if abstract is not None:
         data["abstract"] = abstract
-    if license_id:
+    if license_id is not None:
         data["license"] = license_id
+    if attribution is not None:
+        data["attribution"] = attribution
+    if maintenance_frequency is not None:
+        data["maintenance_frequency"] = maintenance_frequency
+    if supplemental_information is not None:
+        data["supplemental_information"] = supplemental_information
+
+    if regions is not None:
+        cleaned_regions = []
+        for region in regions:
+            if not isinstance(region, str) or not region.strip():
+                return {"error": "Each regions value must be a non-empty string"}
+            cleaned_regions.append(region.strip())
+        data["regions"] = cleaned_regions
+
+    if temporal_extent_start is not None or temporal_extent_end is not None:
+        temporal_extent: Dict[str, str] = {}
+        if temporal_extent_start is not None:
+            temporal_extent["start"] = temporal_extent_start
+        if temporal_extent_end is not None:
+            temporal_extent["end"] = temporal_extent_end
+        data["temporal_extent"] = temporal_extent
+
+    if tkeywords is not None:
+        tkeywords_payload: Dict[str, List[Dict[str, str]]] = {}
+
+        for entry in tkeywords:
+            if not isinstance(entry, dict):
+                return {
+                    "error": (
+                        "Each tkeywords entry must be an object like "
+                        '{"themes": ["id1", "id2"]}'
+                    )
+                }
+
+            for thesaurus_name, keyword_ids in entry.items():
+                if not isinstance(thesaurus_name, str) or not thesaurus_name.strip():
+                    return {
+                        "error": "Each tkeywords thesaurus name must be a non-empty string"
+                    }
+                if not isinstance(keyword_ids, list):
+                    return {
+                        "error": (
+                            f"tkeywords for thesaurus '{thesaurus_name}' must be a list of IDs"
+                        )
+                    }
+
+                existing_ids = {
+                    item["id"] for item in tkeywords_payload.get(thesaurus_name, [])
+                }
+                for keyword_id in keyword_ids:
+                    if not isinstance(keyword_id, str) or not keyword_id.strip():
+                        return {
+                            "error": (
+                                f"Invalid keyword id in thesaurus '{thesaurus_name}': "
+                                "all IDs must be non-empty strings"
+                            )
+                        }
+                    keyword_id_clean = keyword_id.strip()
+                    if keyword_id_clean not in existing_ids:
+                        tkeywords_payload.setdefault(thesaurus_name, []).append(
+                            {"id": keyword_id_clean}
+                        )
+                        existing_ids.add(keyword_id_clean)
+
+        data["tkeywords"] = tkeywords_payload
 
     if not data:
         return {"error": "No metadata fields provided for update"}
 
     try:
-        result = await client.request("PATCH", f"datasets/{dataset_id}", data=data)
+        result = await client.request(
+            "PATCH", f"metadata/instance/{dataset_id}", data=data
+        )
         return result
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}
