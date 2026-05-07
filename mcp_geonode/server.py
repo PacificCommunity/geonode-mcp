@@ -819,6 +819,7 @@ async def update_dataset_metadata(
     license_id: Optional[int] = None,
     group_name: Optional[str] = None,
     category: Optional[str] = None,
+    hkeywords: Optional[List[str]] = None,
     regions: Optional[List[str]] = None,
     temporal_extent_start: Optional[str] = None,
     temporal_extent_end: Optional[str] = None,
@@ -837,6 +838,7 @@ async def update_dataset_metadata(
         license_id: New license ID (optional)
         group_name: Group name to resolve and assign on the dataset endpoint
         category: Category name to resolve via gn_description filter
+        hkeywords: Pre-split keywords list (from CSV `Keywords` column)
         regions: Region labels to associate with the metadata record
         temporal_extent_start: Temporal extent start date/time
         temporal_extent_end: Temporal extent end date/time
@@ -851,6 +853,22 @@ async def update_dataset_metadata(
     """
     client = get_client()
 
+    # maintenace frequencies:
+    UPDATE_FREQUENCIES = (
+        ("unknown", "frequency of maintenance for the data is not known"),
+        ("continual", "data is repeatedly and frequently updated"),
+        ("notPlanned", "there are no plans to update the data"),
+        ("daily", "data is updated each day"),
+        ("annually", "data is updated every year"),
+        ("asNeeded", "data is updated as deemed necessary"),
+        ("monthly", "data is updated each month"),
+        ("fortnightly", "data is updated every two weeks"),
+        ("irregular", "data is updated in intervals that are uneven in duration"),
+        ("weekly", "data is updated on a weekly basis"),
+        ("biannually", "data is updated twice each year"),
+        ("quarterly", "data is updated every three months"),
+    )
+
     data: Dict[str, Any] = {}
     if title is not None:
         data["title"] = title
@@ -861,9 +879,31 @@ async def update_dataset_metadata(
     if attribution is not None:
         data["attribution"] = attribution
     if maintenance_frequency is not None:
-        data["maintenance_frequency"] = maintenance_frequency
+        maintenance_frequency_clean = maintenance_frequency.strip().lower()
+        # use UPDATE_FREQUENCIES to get the code value for the provided label, or validate if the provided value is already a valid code
+        valid_codes = {code for code, label in UPDATE_FREQUENCIES}
+        label_to_code = {label.lower(): code for code, label in UPDATE_FREQUENCIES}
+        if maintenance_frequency_clean in valid_codes:
+            maintenance_frequency_code = maintenance_frequency_clean
+        elif maintenance_frequency_clean in label_to_code:
+            maintenance_frequency_code = label_to_code[maintenance_frequency_clean]
+        else:
+            return {"error": f"Invalid maintenance frequency: '{maintenance_frequency}'"}
+        data["maintenance_frequency"] = maintenance_frequency_code
     if supplemental_information is not None:
         data["supplemental_information"] = supplemental_information
+
+    if hkeywords is not None:
+        if not isinstance(hkeywords, list):
+            return {"error": "hkeywords must be a list of strings"}
+        parsed_hkeywords: List[str] = []
+        for keyword in hkeywords:
+            if not isinstance(keyword, str):
+                return {"error": "hkeywords must be a list of strings"}
+            cleaned_keyword = keyword.strip()
+            if cleaned_keyword and cleaned_keyword not in parsed_hkeywords:
+                parsed_hkeywords.append(cleaned_keyword)
+        data["hkeywords"] = parsed_hkeywords
 
     if category is not None:
         category_clean = category.strip()
@@ -923,12 +963,10 @@ async def update_dataset_metadata(
         data["regions"] = resolved_regions
 
     if temporal_extent_start is not None or temporal_extent_end is not None:
-        temporal_extent: Dict[str, str] = {}
         if temporal_extent_start is not None:
-            temporal_extent["start"] = temporal_extent_start
+            data["temporal_extent_start"] = temporal_extent_start
         if temporal_extent_end is not None:
-            temporal_extent["end"] = temporal_extent_end
-        data["temporal_extent"] = temporal_extent
+            data["temporal_extent_end"] = temporal_extent_end
 
     if tkeywords is not None:
         tkeywords_payload: Dict[str, List[Dict[str, str]]] = {}

@@ -207,15 +207,18 @@ update_dataset_metadata(
     license_id=7,
     group_name="Climate Data Team",
     category="Climate and Meteorology",
+    hkeywords=["ocean", "reef", "marine habitat"],
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
     temporal_extent_end="2024-12-31",
     attribution="Pacific Community (SPC)",
-    maintenance_frequency="annually",
+    maintenance_frequency="annually",  # code or label supported
     supplemental_information="Compiled from validated field observations.",
     tkeywords=[{"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]}]
 )
 ```
+
+`maintenance_frequency` accepts either a canonical code or a full label (it is normalized to the code), and temporal extent is sent using top-level `temporal_extent_start` / `temporal_extent_end` fields.
 
 ## Available Tools
 

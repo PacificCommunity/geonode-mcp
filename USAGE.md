@@ -321,11 +321,12 @@ Update metadata for a dataset.
 - `license_id` (optional): New license ID
 - `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
 - `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
+- `hkeywords` (optional): Pre-split list from CSV `Keywords` column.
 - `regions` (optional): List of region names. Each region is resolved to its ID via `/api/v2/regions` with `filter{title}`
-- `temporal_extent_start` (optional): Temporal extent start datetime/date
-- `temporal_extent_end` (optional): Temporal extent end datetime/date
+- `temporal_extent_start` (optional): Temporal extent start datetime/date (sent as `temporal_extent_start`)
+- `temporal_extent_end` (optional): Temporal extent end datetime/date (sent as `temporal_extent_end`)
 - `attribution` (optional): Attribution statement
-- `maintenance_frequency` (optional): Maintenance frequency value
+- `maintenance_frequency` (optional): Maintenance frequency code or label. Supported codes: `unknown`, `continual`, `notPlanned`, `daily`, `annually`, `asNeeded`, `monthly`, `fortnightly`, `irregular`, `weekly`, `biannually`, `quarterly`
 - `supplemental_information` (optional): Supplemental information text
 - `tkeywords` (optional): List of thesaurus-to-keyword-ID maps.
   Example: `[{"themes": ["exact-id-1", "exact-id-2"]}, {"place": ["exact-id-3"]}]`
@@ -339,6 +340,7 @@ update_dataset_metadata(
     license_id=7,
     group_name="Climate Data Team",
     category="Climate and Meteorology",
+    hkeywords=["ocean", "reef", "marine habitat"],
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
     temporal_extent_end="2024-12-31",
@@ -358,8 +360,16 @@ When `group_name` is provided, the tool first resolves the group through `/api/v
 When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
 `{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
 
+When `hkeywords` is provided, values are trimmed, deduplicated, and sent as:
+`"hkeywords": ["keyword1", "keyword2", ...]`.
+
+When `maintenance_frequency` is provided, the tool accepts either a valid frequency code or the full label and normalizes it to the canonical code before patching.
+
 When `regions` are provided, each region name is resolved to its ID via `/api/v2/regions` with `filter{title}` and transformed to:
 `[{"id": <resolved_id>, "name": <resolved_name>}, ...]`.
+
+When temporal extent values are provided, they are sent as top-level fields:
+`"temporal_extent_start": "<value>"` and `"temporal_extent_end": "<value>"`.
 
 Use `/api/v2/metadata/autocomplete/thesaurus/{thesaurus}/keywords?q=...` first to get exact keyword IDs, then pass those IDs in `tkeywords`.
 
