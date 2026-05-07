@@ -207,6 +207,8 @@ update_dataset_metadata(
     license_id=7,
     group_name="Climate Data Team",
     category="Climate and Meteorology",
+    owner={"id": 10, "label": "Data Manager"},
+    point_of_contact={"id": 12, "label": "GIS Officer"},
     hkeywords=["ocean", "reef", "marine habitat"],
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",

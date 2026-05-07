@@ -321,6 +321,8 @@ Update metadata for a dataset.
 - `license_id` (optional): New license ID
 - `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
 - `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
+- `owner` (optional): Owner contact object with `id` and `label`
+- `point_of_contact` (optional): Point-of-contact object with `id` and `label`
 - `hkeywords` (optional): Pre-split list from CSV `Keywords` column.
 - `regions` (optional): List of region names. Each region is resolved to its ID via `/api/v2/regions` with `filter{title}`
 - `temporal_extent_start` (optional): Temporal extent start datetime/date (sent as `temporal_extent_start`)
@@ -340,6 +342,8 @@ update_dataset_metadata(
     license_id=7,
     group_name="Climate Data Team",
     category="Climate and Meteorology",
+    owner={"id": 10, "label": "Data Manager"},
+    point_of_contact={"id": 12, "label": "GIS Officer"},
     hkeywords=["ocean", "reef", "marine habitat"],
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
@@ -359,6 +363,9 @@ When `group_name` is provided, the tool first resolves the group through `/api/v
 
 When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
 `{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
+
+When `owner` and/or `point_of_contact` are provided, they are passed under:
+`"contacts": {"owner": {"id": ..., "label": ...}, "point_of_contact": {"id": ..., "label": ...}}`.
 
 When `hkeywords` is provided, values are trimmed, deduplicated, and sent as:
 `"hkeywords": ["keyword1", "keyword2", ...]`.

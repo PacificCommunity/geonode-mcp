@@ -819,6 +819,8 @@ async def update_dataset_metadata(
     license_id: Optional[int] = None,
     group_name: Optional[str] = None,
     category: Optional[str] = None,
+    owner: Optional[Dict[str, Any]] = None,
+    point_of_contact: Optional[Dict[str, Any]] = None,
     hkeywords: Optional[List[str]] = None,
     regions: Optional[List[str]] = None,
     temporal_extent_start: Optional[str] = None,
@@ -838,6 +840,8 @@ async def update_dataset_metadata(
         license_id: New license ID (optional)
         group_name: Group name to resolve and assign on the dataset endpoint
         category: Category name to resolve via gn_description filter
+        owner: Owner contact object, e.g. {"id": 1, "label": "John"}
+        point_of_contact: POC contact object, e.g. {"id": 2, "label": "Jane"}
         hkeywords: Pre-split keywords list (from CSV `Keywords` column)
         regions: Region labels to associate with the metadata record
         temporal_extent_start: Temporal extent start date/time
@@ -888,10 +892,45 @@ async def update_dataset_metadata(
         elif maintenance_frequency_clean in label_to_code:
             maintenance_frequency_code = label_to_code[maintenance_frequency_clean]
         else:
-            return {"error": f"Invalid maintenance frequency: '{maintenance_frequency}'"}
+            return {
+                "error": f"Invalid maintenance frequency: '{maintenance_frequency}'"
+            }
         data["maintenance_frequency"] = maintenance_frequency_code
     if supplemental_information is not None:
         data["supplemental_information"] = supplemental_information
+
+    contacts_payload: Dict[str, Any] = {}
+    if owner is not None:
+        owner_id = owner.get("id")
+        owner_label = owner.get("label")
+        if (
+            owner_id is None
+            or not isinstance(owner_label, str)
+            or not owner_label.strip()
+        ):
+            return {"error": "owner must include non-empty label and id"}
+        try:
+            owner_id_int = int(owner_id)
+        except (TypeError, ValueError):
+            return {"error": "owner id must be an integer"}
+        contacts_payload["owner"] = {"id": owner_id_int, "label": owner_label.strip()}
+
+    if point_of_contact is not None:
+        poc_id = point_of_contact.get("id")
+        poc_label = point_of_contact.get("label")
+        if poc_id is None or not isinstance(poc_label, str) or not poc_label.strip():
+            return {"error": "point_of_contact must include non-empty label and id"}
+        try:
+            poc_id_int = int(poc_id)
+        except (TypeError, ValueError):
+            return {"error": "point_of_contact id must be an integer"}
+        contacts_payload["pointOfContact"] = [{
+            "id": poc_id_int,
+            "label": poc_label.strip(),
+        }]
+
+    if contacts_payload:
+        data["contacts"] = contacts_payload
 
     if hkeywords is not None:
         if not isinstance(hkeywords, list):
@@ -1015,6 +1054,11 @@ async def update_dataset_metadata(
     try:
         metadata_result: Optional[Dict[str, Any]] = None
         if data:
+            logger.debug(
+                "update_dataset_metadata metadata payload (dataset_id=%s): %s",
+                dataset_id,
+                _sanitize_for_logging(data),
+            )
             metadata_result = await client.request(
                 "PATCH", f"metadata/instance/{dataset_id}", data=data
             )
@@ -1045,6 +1089,11 @@ async def update_dataset_metadata(
                     }
 
                 resolved_group = {"pk": group_pk}
+                logger.debug(
+                    "update_dataset_metadata dataset payload (dataset_id=%s): %s",
+                    dataset_id,
+                    _sanitize_for_logging({"group": resolved_group}),
+                )
                 group_update_result = await client.request(
                     "PATCH",
                     f"datasets/{dataset_id}",
