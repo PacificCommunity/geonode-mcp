@@ -319,6 +319,7 @@ Update metadata for a dataset.
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
+- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
 - `regions` (optional): List of region labels
 - `temporal_extent_start` (optional): Temporal extent start datetime/date
 - `temporal_extent_end` (optional): Temporal extent end datetime/date
@@ -335,6 +336,7 @@ update_dataset_metadata(
     title="Updated Dataset Title",
     abstract="Updated description",
     license_id=7,
+    group_name="Climate Data Team",
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
     temporal_extent_end="2024-12-31",
@@ -347,6 +349,9 @@ update_dataset_metadata(
     ],
 )
 ```
+
+When `group_name` is provided, the tool first resolves the group through `/api/v2/groups?filter{title}={group_name}` and then updates `/api/v2/datasets/{id}` with:
+`{"group": {"pk": <resolved_pk>, "name": <resolved_name>}}`.
 
 Use `/api/v2/metadata/autocomplete/thesaurus/{thesaurus}/keywords?q=...` first to get exact keyword IDs, then pass those IDs in `tkeywords`.
 

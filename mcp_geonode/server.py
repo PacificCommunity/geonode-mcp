@@ -817,6 +817,7 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
+    group_name: Optional[str] = None,
     regions: Optional[List[str]] = None,
     temporal_extent_start: Optional[str] = None,
     temporal_extent_end: Optional[str] = None,
@@ -833,6 +834,7 @@ async def update_dataset_metadata(
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
+        group_name: Group name to resolve and assign on the dataset endpoint
         regions: Region labels to associate with the metadata record
         temporal_extent_start: Temporal extent start date/time
         temporal_extent_end: Temporal extent end date/time
@@ -921,14 +923,59 @@ async def update_dataset_metadata(
 
         data["tkeywords"] = tkeywords_payload
 
-    if not data:
-        return {"error": "No metadata fields provided for update"}
-
     try:
-        result = await client.request(
-            "PATCH", f"metadata/instance/{dataset_id}", data=data
-        )
-        return result
+        metadata_result: Optional[Dict[str, Any]] = None
+        if data:
+            metadata_result = await client.request(
+                "PATCH", f"metadata/instance/{dataset_id}", data=data
+            )
+
+        group_update_result: Optional[Dict[str, Any]] = None
+        resolved_group: Optional[Dict[str, Any]] = None
+        if group_name is not None:
+
+            groups_result = await client.request(
+                "GET", "groups", params={"filter{{title}}": group_name, "page_size": 100}
+            )
+
+            if groups_result.get("total") == 0:
+                return {"error": f"No groups found matching name: '{group_name}'"}
+            elif groups_result.get("total", 0) > 1:
+                return {"error": f"Multiple groups found matching name: '{group_name}'"}
+
+            elif groups_result.get("total") == 1:
+                matched_group = groups_result["groups"][0]
+
+                group_pk = matched_group.get("pk")
+                matched_group_name = matched_group.get("title")
+
+                if group_pk is None:
+                    return {
+                        "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
+                    }
+
+                resolved_group = {"pk": group_pk, "name": matched_group_name}
+                group_update_result = await client.request(
+                    "PATCH",
+                    f"datasets/{dataset_id}",
+                    data={"group": resolved_group},
+                )
+
+        if metadata_result is not None and group_update_result is None:
+            return metadata_result
+        if metadata_result is None and group_update_result is not None:
+            return {
+                "dataset_update": group_update_result,
+                "resolved_group": resolved_group,
+            }
+        if metadata_result is not None and group_update_result is not None:
+            return {
+                "metadata_update": metadata_result,
+                "dataset_update": group_update_result,
+                "resolved_group": resolved_group,
+            }
+
+        return {"error": "No metadata fields or group_name provided for update"}
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}
 
