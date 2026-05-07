@@ -818,6 +818,7 @@ async def update_dataset_metadata(
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
     group_name: Optional[str] = None,
+    category: Optional[str] = None,
     regions: Optional[List[str]] = None,
     temporal_extent_start: Optional[str] = None,
     temporal_extent_end: Optional[str] = None,
@@ -835,6 +836,7 @@ async def update_dataset_metadata(
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
         group_name: Group name to resolve and assign on the dataset endpoint
+        category: Category name to resolve via gn_description filter
         regions: Region labels to associate with the metadata record
         temporal_extent_start: Temporal extent start date/time
         temporal_extent_end: Temporal extent end date/time
@@ -869,7 +871,23 @@ async def update_dataset_metadata(
             if not isinstance(region, str) or not region.strip():
                 return {"error": "Each regions value must be a non-empty string"}
             cleaned_regions.append(region.strip())
-        data["regions"] = cleaned_regions
+
+        resolved_regions: List[Dict[str, Any]] = []
+        for region_name in cleaned_regions:
+            regions_result = await client.request(
+                "GET",
+                "regions",
+                params={"filter{name}": region_name, "page_size": 100},
+            )
+            if regions_result.get("total") == 0:
+                return {"error": f"No region found matching name: '{region_name}'"}
+            elif regions_result.get("total", 0) > 1:
+                return {"error": f"Multiple regions found matching name: '{region_name}'"}
+            elif regions_result.get("total") == 1:
+                matched_region = regions_result["regions"][0]
+                resolved_regions.append({"id": matched_region.get("id"), "name": matched_region.get("name")})
+
+        data["regions"] = resolved_regions
 
     if temporal_extent_start is not None or temporal_extent_end is not None:
         temporal_extent: Dict[str, str] = {}
@@ -935,18 +953,19 @@ async def update_dataset_metadata(
         if group_name is not None:
 
             groups_result = await client.request(
-                "GET", "groups", params={"filter{{title}}": group_name, "page_size": 100}
+                "GET",
+                "groups",
+                params={"filter{title}": group_name, "page_size": 100},
             )
 
             if groups_result.get("total") == 0:
                 return {"error": f"No groups found matching name: '{group_name}'"}
             elif groups_result.get("total", 0) > 1:
                 return {"error": f"Multiple groups found matching name: '{group_name}'"}
-
             elif groups_result.get("total") == 1:
-                matched_group = groups_result["groups"][0]
+                matched_group = groups_result["group_profiles"][0]
 
-                group_pk = matched_group.get("pk")
+                group_pk = matched_group.get("group").get("pk")
                 matched_group_name = matched_group.get("title")
 
                 if group_pk is None:
@@ -954,7 +973,7 @@ async def update_dataset_metadata(
                         "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
                     }
 
-                resolved_group = {"pk": group_pk, "name": matched_group_name}
+                resolved_group = {"pk": group_pk}
                 group_update_result = await client.request(
                     "PATCH",
                     f"datasets/{dataset_id}",
