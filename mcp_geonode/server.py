@@ -11,7 +11,7 @@ import base64
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -817,35 +817,304 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
+    group_name: Optional[str] = None,
+    category: Optional[str] = None,
+    owner: Optional[Dict[str, Any]] = None,
+    point_of_contact: Optional[Dict[str, Any]] = None,
+    hkeywords: Optional[List[str]] = None,
+    regions: Optional[List[str]] = None,
+    temporal_extent_start: Optional[str] = None,
+    temporal_extent_end: Optional[str] = None,
+    attribution: Optional[str] = None,
+    maintenance_frequency: Optional[str] = None,
+    supplemental_information: Optional[str] = None,
+    tkeywords: Optional[List[Dict[str, List[str]]]] = None,
 ) -> Dict[str, Any]:
     """
     Update metadata for a dataset.
 
     Args:
-        dataset_id: ID of the dataset to update
+        dataset_id: ID of the metadata instance to update
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
+        group_name: Group name to resolve and assign on the dataset endpoint
+        category: Category name to resolve via gn_description filter
+        owner: Owner contact object, e.g. {"id": 1, "label": "John"}
+        point_of_contact: POC contact object, e.g. {"id": 2, "label": "Jane"}
+        hkeywords: Pre-split keywords list (from CSV `Keywords` column)
+        regions: Region labels to associate with the metadata record
+        temporal_extent_start: Temporal extent start date/time
+        temporal_extent_end: Temporal extent end date/time
+        attribution: Attribution statement
+        maintenance_frequency: Maintenance frequency value
+        supplemental_information: Supplemental information text
+        tkeywords: List of dictionaries mapping thesaurus name to keyword IDs.
+            Example: [{"themes": ["id1", "id2"]}, {"place": ["id3"]}]
 
     Returns:
         Dictionary containing update status
     """
     client = get_client()
 
-    data: Dict[str, Any] = {}
-    if title:
-        data["title"] = title
-    if abstract:
-        data["abstract"] = abstract
-    if license_id:
-        data["license"] = license_id
+    # maintenace frequencies:
+    UPDATE_FREQUENCIES = (
+        ("unknown", "frequency of maintenance for the data is not known"),
+        ("continual", "data is repeatedly and frequently updated"),
+        ("notPlanned", "there are no plans to update the data"),
+        ("daily", "data is updated each day"),
+        ("annually", "data is updated every year"),
+        ("asNeeded", "data is updated as deemed necessary"),
+        ("monthly", "data is updated each month"),
+        ("fortnightly", "data is updated every two weeks"),
+        ("irregular", "data is updated in intervals that are uneven in duration"),
+        ("weekly", "data is updated on a weekly basis"),
+        ("biannually", "data is updated twice each year"),
+        ("quarterly", "data is updated every three months"),
+    )
 
-    if not data:
-        return {"error": "No metadata fields provided for update"}
+    data: Dict[str, Any] = {}
+    if title is not None:
+        data["title"] = title
+    if abstract is not None:
+        data["abstract"] = abstract
+    if license_id is not None:
+        data["license"] = license_id
+    if attribution is not None:
+        data["attribution"] = attribution
+    if maintenance_frequency is not None:
+        maintenance_frequency_clean = maintenance_frequency.strip().lower()
+        # use UPDATE_FREQUENCIES to get the code value for the provided label, or validate if the provided value is already a valid code
+        valid_codes = {code for code, label in UPDATE_FREQUENCIES}
+        label_to_code = {label.lower(): code for code, label in UPDATE_FREQUENCIES}
+        if maintenance_frequency_clean in valid_codes:
+            maintenance_frequency_code = maintenance_frequency_clean
+        elif maintenance_frequency_clean in label_to_code:
+            maintenance_frequency_code = label_to_code[maintenance_frequency_clean]
+        else:
+            return {
+                "error": f"Invalid maintenance frequency: '{maintenance_frequency}'"
+            }
+        data["maintenance_frequency"] = maintenance_frequency_code
+    if supplemental_information is not None:
+        data["supplemental_information"] = supplemental_information
+
+    contacts_payload: Dict[str, Any] = {}
+    if owner is not None:
+        owner_id = owner.get("id")
+        owner_label = owner.get("label")
+        if (
+            owner_id is None
+            or not isinstance(owner_label, str)
+            or not owner_label.strip()
+        ):
+            return {"error": "owner must include non-empty label and id"}
+        try:
+            owner_id_int = int(owner_id)
+        except (TypeError, ValueError):
+            return {"error": "owner id must be an integer"}
+        contacts_payload["owner"] = {"id": owner_id_int, "label": owner_label.strip()}
+
+    if point_of_contact is not None:
+        poc_id = point_of_contact.get("id")
+        poc_label = point_of_contact.get("label")
+        if poc_id is None or not isinstance(poc_label, str) or not poc_label.strip():
+            return {"error": "point_of_contact must include non-empty label and id"}
+        try:
+            poc_id_int = int(poc_id)
+        except (TypeError, ValueError):
+            return {"error": "point_of_contact id must be an integer"}
+        contacts_payload["pointOfContact"] = [{
+            "id": poc_id_int,
+            "label": poc_label.strip(),
+        }]
+
+    if contacts_payload:
+        data["contacts"] = contacts_payload
+
+    if hkeywords is not None:
+        if not isinstance(hkeywords, list):
+            return {"error": "hkeywords must be a list of strings"}
+        parsed_hkeywords: List[str] = []
+        for keyword in hkeywords:
+            if not isinstance(keyword, str):
+                return {"error": "hkeywords must be a list of strings"}
+            cleaned_keyword = keyword.strip()
+            if cleaned_keyword and cleaned_keyword not in parsed_hkeywords:
+                parsed_hkeywords.append(cleaned_keyword)
+        data["hkeywords"] = parsed_hkeywords
+
+    if category is not None:
+        category_clean = category.strip()
+        if not category_clean:
+            return {"error": "category must be a non-empty string"}
+
+        categories_result = await client.request(
+            "GET",
+            "categories",
+            params={"filter{gn_description}": category_clean, "page_size": 100},
+        )
+        matched_category: Optional[Dict[str, Any]] = None
+        if categories_result.get("total") == 0:
+            return {"error": f"No category found matching name: '{category_clean}'"}
+        elif categories_result.get("total", 0) > 1:
+            return {
+                "error": f"Multiple categories found matching name: '{category_clean}'"
+            }
+        elif categories_result.get("total") == 1:
+            matched_category = categories_result["categories"][0]
+
+        if matched_category:
+            category_id = matched_category.get("identifier")
+            matched_category_label = matched_category.get("gn_description")
+            if category_id is None:
+                return {
+                    "error": f"Resolved category '{matched_category_label}' does not have an id"
+                }
+            data["category"] = {"id": category_id, "label": matched_category_label}
+
+    if regions is not None:
+        cleaned_regions = []
+        for region in regions:
+            if not isinstance(region, str) or not region.strip():
+                return {"error": "Each regions value must be a non-empty string"}
+            cleaned_regions.append(region.strip())
+
+        resolved_regions: List[Dict[str, Any]] = []
+        for region_name in cleaned_regions:
+            regions_result = await client.request(
+                "GET",
+                "regions",
+                params={"filter{name}": region_name, "page_size": 100},
+            )
+            if regions_result.get("total") == 0:
+                return {"error": f"No region found matching name: '{region_name}'"}
+            elif regions_result.get("total", 0) > 1:
+                return {
+                    "error": f"Multiple regions found matching name: '{region_name}'"
+                }
+            elif regions_result.get("total") == 1:
+                matched_region = regions_result["regions"][0]
+                resolved_regions.append(
+                    {"id": matched_region.get("id"), "name": matched_region.get("name")}
+                )
+
+        data["regions"] = resolved_regions
+
+    if temporal_extent_start is not None or temporal_extent_end is not None:
+        if temporal_extent_start is not None:
+            data["temporal_extent_start"] = temporal_extent_start
+        if temporal_extent_end is not None:
+            data["temporal_extent_end"] = temporal_extent_end
+
+    if tkeywords is not None:
+        tkeywords_payload: Dict[str, List[Dict[str, str]]] = {}
+
+        for entry in tkeywords:
+            if not isinstance(entry, dict):
+                return {
+                    "error": (
+                        "Each tkeywords entry must be an object like "
+                        '{"themes": ["id1", "id2"]}'
+                    )
+                }
+
+            for thesaurus_name, keyword_ids in entry.items():
+                if not isinstance(thesaurus_name, str) or not thesaurus_name.strip():
+                    return {
+                        "error": "Each tkeywords thesaurus name must be a non-empty string"
+                    }
+                if not isinstance(keyword_ids, list):
+                    return {
+                        "error": (
+                            f"tkeywords for thesaurus '{thesaurus_name}' must be a list of IDs"
+                        )
+                    }
+
+                existing_ids = {
+                    item["id"] for item in tkeywords_payload.get(thesaurus_name, [])
+                }
+                for keyword_id in keyword_ids:
+                    if not isinstance(keyword_id, str) or not keyword_id.strip():
+                        return {
+                            "error": (
+                                f"Invalid keyword id in thesaurus '{thesaurus_name}': "
+                                "all IDs must be non-empty strings"
+                            )
+                        }
+                    keyword_id_clean = keyword_id.strip()
+                    if keyword_id_clean not in existing_ids:
+                        tkeywords_payload.setdefault(thesaurus_name, []).append(
+                            {"id": keyword_id_clean}
+                        )
+                        existing_ids.add(keyword_id_clean)
+
+        data["tkeywords"] = tkeywords_payload
 
     try:
-        result = await client.request("PATCH", f"datasets/{dataset_id}", data=data)
-        return result
+        metadata_result: Optional[Dict[str, Any]] = None
+        if data:
+            logger.debug(
+                "update_dataset_metadata metadata payload (dataset_id=%s): %s",
+                dataset_id,
+                _sanitize_for_logging(data),
+            )
+            metadata_result = await client.request(
+                "PATCH", f"metadata/instance/{dataset_id}", data=data
+            )
+
+        group_update_result: Optional[Dict[str, Any]] = None
+        resolved_group: Optional[Dict[str, Any]] = None
+        if group_name is not None:
+
+            groups_result = await client.request(
+                "GET",
+                "groups",
+                params={"filter{title}": group_name, "page_size": 100},
+            )
+
+            if groups_result.get("total") == 0:
+                return {"error": f"No groups found matching name: '{group_name}'"}
+            elif groups_result.get("total", 0) > 1:
+                return {"error": f"Multiple groups found matching name: '{group_name}'"}
+            elif groups_result.get("total") == 1:
+                matched_group = groups_result["group_profiles"][0]
+
+                group_pk = matched_group.get("group").get("pk")
+                matched_group_name = matched_group.get("title")
+
+                if group_pk is None:
+                    return {
+                        "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
+                    }
+
+                resolved_group = {"pk": group_pk}
+                logger.debug(
+                    "update_dataset_metadata dataset payload (dataset_id=%s): %s",
+                    dataset_id,
+                    _sanitize_for_logging({"group": resolved_group}),
+                )
+                group_update_result = await client.request(
+                    "PATCH",
+                    f"datasets/{dataset_id}",
+                    data={"group": resolved_group},
+                )
+
+        if metadata_result is not None and group_update_result is None:
+            return metadata_result
+        if metadata_result is None and group_update_result is not None:
+            return {
+                "dataset_update": group_update_result,
+                "resolved_group": resolved_group,
+            }
+        if metadata_result is not None and group_update_result is not None:
+            return {
+                "metadata_update": metadata_result,
+                "dataset_update": group_update_result,
+                "resolved_group": resolved_group,
+            }
+
+        return {"error": "No metadata fields or group_name provided for update"}
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}
 

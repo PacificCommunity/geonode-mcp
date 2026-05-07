@@ -204,9 +204,23 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    license_id=7
+    license_id=7,
+    group_name="Climate Data Team",
+    category="Climate and Meteorology",
+    owner={"id": 10, "label": "Data Manager"},
+    point_of_contact={"id": 12, "label": "GIS Officer"},
+    hkeywords=["ocean", "reef", "marine habitat"],
+    regions=["Pacific", "Melanesia"],
+    temporal_extent_start="2020-01-01",
+    temporal_extent_end="2024-12-31",
+    attribution="Pacific Community (SPC)",
+    maintenance_frequency="annually",  # code or label supported
+    supplemental_information="Compiled from validated field observations.",
+    tkeywords=[{"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]}]
 )
 ```
+
+`maintenance_frequency` accepts either a canonical code or a full label (it is normalized to the code), and temporal extent is sent using top-level `temporal_extent_start` / `temporal_extent_end` fields.
 
 ## Available Tools
 
@@ -223,7 +237,7 @@ update_dataset_metadata(
 - `search_resources`: Search resources by text query
 - `download_resource`: Get download URLs
 - `delete_resource`: Remove resources
-- `update_dataset_metadata`: Update dataset title, abstract, and license
+- `update_dataset_metadata`: Update dataset metadata fields via metadata instance endpoint
 - `list_linked_resources`: Find linked resources
 
 ### Data Upload
@@ -254,7 +268,8 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
-- `/api/v2/datasets/{id}` - Dataset metadata updates via PATCH
+- `/api/v2/metadata/instance/{id}` - Dataset metadata updates via PATCH
+- `/api/v2/metadata/autocomplete/thesaurus/{name}/keywords` - Keyword ID lookup for metadata updates
 - `/api/v2/uploads/upload` - Dataset uploads
 - `/api/v2/documents` - Document operations
 - `/api/v2/users` - User management

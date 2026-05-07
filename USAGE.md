@@ -315,10 +315,23 @@ delete_resource(resource_id=123)
 Update metadata for a dataset.
 
 **Parameters:**
-- `dataset_id` (required): ID of the dataset
+- `dataset_id` (required): Metadata instance ID to update
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
+- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
+- `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
+- `owner` (optional): Owner contact object with `id` and `label`
+- `point_of_contact` (optional): Point-of-contact object with `id` and `label`
+- `hkeywords` (optional): Pre-split list from CSV `Keywords` column.
+- `regions` (optional): List of region names. Each region is resolved to its ID via `/api/v2/regions` with `filter{title}`
+- `temporal_extent_start` (optional): Temporal extent start datetime/date (sent as `temporal_extent_start`)
+- `temporal_extent_end` (optional): Temporal extent end datetime/date (sent as `temporal_extent_end`)
+- `attribution` (optional): Attribution statement
+- `maintenance_frequency` (optional): Maintenance frequency code or label. Supported codes: `unknown`, `continual`, `notPlanned`, `daily`, `annually`, `asNeeded`, `monthly`, `fortnightly`, `irregular`, `weekly`, `biannually`, `quarterly`
+- `supplemental_information` (optional): Supplemental information text
+- `tkeywords` (optional): List of thesaurus-to-keyword-ID maps.
+  Example: `[{"themes": ["exact-id-1", "exact-id-2"]}, {"place": ["exact-id-3"]}]`
 
 **Example:**
 ```python
@@ -326,9 +339,46 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    license_id=7
+    license_id=7,
+    group_name="Climate Data Team",
+    category="Climate and Meteorology",
+    owner={"id": 10, "label": "Data Manager"},
+    point_of_contact={"id": 12, "label": "GIS Officer"},
+    hkeywords=["ocean", "reef", "marine habitat"],
+    regions=["Pacific", "Melanesia"],
+    temporal_extent_start="2020-01-01",
+    temporal_extent_end="2024-12-31",
+    attribution="Pacific Community (SPC)",
+    maintenance_frequency="annually",
+    supplemental_information="Compiled from validated field observations.",
+    tkeywords=[
+        {"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]},
+        {"place": ["PASTE_OTHER_EXACT_ID"]},
+    ],
 )
 ```
+
+When `group_name` is provided, the tool first resolves the group through `/api/v2/groups` and then updates `/api/v2/datasets/{id}` with:
+`{"group": {"pk": <resolved_pk>, "name": <resolved_name>}}`.
+
+When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
+`{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
+
+When `owner` and/or `point_of_contact` are provided, they are passed under:
+`"contacts": {"owner": {"id": ..., "label": ...}, "point_of_contact": {"id": ..., "label": ...}}`.
+
+When `hkeywords` is provided, values are trimmed, deduplicated, and sent as:
+`"hkeywords": ["keyword1", "keyword2", ...]`.
+
+When `maintenance_frequency` is provided, the tool accepts either a valid frequency code or the full label and normalizes it to the canonical code before patching.
+
+When `regions` are provided, each region name is resolved to its ID via `/api/v2/regions` with `filter{title}` and transformed to:
+`[{"id": <resolved_id>, "name": <resolved_name>}, ...]`.
+
+When temporal extent values are provided, they are sent as top-level fields:
+`"temporal_extent_start": "<value>"` and `"temporal_extent_end": "<value>"`.
+
+Use `/api/v2/metadata/autocomplete/thesaurus/{thesaurus}/keywords?q=...` first to get exact keyword IDs, then pass those IDs in `tkeywords`.
 
 #### `list_linked_resources`
 List resources linked to a specific resource.
