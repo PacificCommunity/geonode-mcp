@@ -865,6 +865,35 @@ async def update_dataset_metadata(
     if supplemental_information is not None:
         data["supplemental_information"] = supplemental_information
 
+    if category is not None:
+        category_clean = category.strip()
+        if not category_clean:
+            return {"error": "category must be a non-empty string"}
+
+        categories_result = await client.request(
+            "GET",
+            "categories",
+            params={"filter{gn_description}": category_clean, "page_size": 100},
+        )
+        matched_category: Optional[Dict[str, Any]] = None
+        if categories_result.get("total") == 0:
+            return {"error": f"No category found matching name: '{category_clean}'"}
+        elif categories_result.get("total", 0) > 1:
+            return {
+                "error": f"Multiple categories found matching name: '{category_clean}'"
+            }
+        elif categories_result.get("total") == 1:
+            matched_category = categories_result["categories"][0]
+
+        if matched_category:
+            category_id = matched_category.get("identifier")
+            matched_category_label = matched_category.get("gn_description")
+            if category_id is None:
+                return {
+                    "error": f"Resolved category '{matched_category_label}' does not have an id"
+                }
+            data["category"] = {"id": category_id, "label": matched_category_label}
+
     if regions is not None:
         cleaned_regions = []
         for region in regions:
@@ -882,10 +911,14 @@ async def update_dataset_metadata(
             if regions_result.get("total") == 0:
                 return {"error": f"No region found matching name: '{region_name}'"}
             elif regions_result.get("total", 0) > 1:
-                return {"error": f"Multiple regions found matching name: '{region_name}'"}
+                return {
+                    "error": f"Multiple regions found matching name: '{region_name}'"
+                }
             elif regions_result.get("total") == 1:
                 matched_region = regions_result["regions"][0]
-                resolved_regions.append({"id": matched_region.get("id"), "name": matched_region.get("name")})
+                resolved_regions.append(
+                    {"id": matched_region.get("id"), "name": matched_region.get("name")}
+                )
 
         data["regions"] = resolved_regions
 

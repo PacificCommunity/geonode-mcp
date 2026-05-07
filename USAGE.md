@@ -320,6 +320,7 @@ Update metadata for a dataset.
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
 - `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
+- `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
 - `regions` (optional): List of region names. Each region is resolved to its ID via `/api/v2/regions` with `filter{title}`
 - `temporal_extent_start` (optional): Temporal extent start datetime/date
 - `temporal_extent_end` (optional): Temporal extent end datetime/date
@@ -337,6 +338,7 @@ update_dataset_metadata(
     abstract="Updated description",
     license_id=7,
     group_name="Climate Data Team",
+    category="Climate and Meteorology",
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
     temporal_extent_end="2024-12-31",
@@ -352,6 +354,9 @@ update_dataset_metadata(
 
 When `group_name` is provided, the tool first resolves the group through `/api/v2/groups` and then updates `/api/v2/datasets/{id}` with:
 `{"group": {"pk": <resolved_pk>, "name": <resolved_name>}}`.
+
+When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
+`{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
 
 When `regions` are provided, each region name is resolved to its ID via `/api/v2/regions` with `filter{title}` and transformed to:
 `[{"id": <resolved_id>, "name": <resolved_name>}, ...]`.

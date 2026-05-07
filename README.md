@@ -206,6 +206,7 @@ update_dataset_metadata(
     abstract="Updated description",
     license_id=7,
     group_name="Climate Data Team",
+    category="Climate and Meteorology",
     regions=["Pacific", "Melanesia"],
     temporal_extent_start="2020-01-01",
     temporal_extent_end="2024-12-31",
