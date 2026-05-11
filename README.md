@@ -205,7 +205,6 @@ update_dataset_metadata(
     title="Updated Dataset Title",
     abstract="Updated description",
     license_id=7,
-    group_name="Climate Data Team",
     category="Climate and Meteorology",
     owner={"id": 10, "label": "Data Manager"},
     point_of_contact={"id": 12, "label": "GIS Officer"},
@@ -217,6 +216,13 @@ update_dataset_metadata(
     maintenance_frequency="annually",  # code or label supported
     supplemental_information="Compiled from validated field observations.",
     tkeywords=[{"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]}]
+)
+
+# Update dataset-level settings through datasets/{id}
+update_dataset_settings(
+    dataset_id=123,
+    group_name="Climate Data Team",
+    is_published=True
 )
 ```
 
@@ -238,6 +244,7 @@ update_dataset_metadata(
 - `download_resource`: Get download URLs
 - `delete_resource`: Remove resources
 - `update_dataset_metadata`: Update dataset metadata fields via metadata instance endpoint
+- `update_dataset_settings`: Update dataset-level fields via dataset endpoint
 - `list_linked_resources`: Find linked resources
 
 ### Data Upload
