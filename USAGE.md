@@ -319,7 +319,6 @@ Update metadata for a dataset.
 - `title` (optional): New title
 - `abstract` (optional): New description
 - `license_id` (optional): New license ID
-- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}` with both `pk` and `name`.
 - `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
 - `owner` (optional): Owner contact object with `id` and `label`
 - `point_of_contact` (optional): Point-of-contact object with `id` and `label`
@@ -340,7 +339,6 @@ update_dataset_metadata(
     title="Updated Dataset Title",
     abstract="Updated description",
     license_id=7,
-    group_name="Climate Data Team",
     category="Climate and Meteorology",
     owner={"id": 10, "label": "Data Manager"},
     point_of_contact={"id": 12, "label": "GIS Officer"},
@@ -358,8 +356,25 @@ update_dataset_metadata(
 )
 ```
 
-When `group_name` is provided, the tool first resolves the group through `/api/v2/groups` and then updates `/api/v2/datasets/{id}` with:
-`{"group": {"pk": <resolved_pk>, "name": <resolved_name>}}`.
+#### `update_dataset_settings`
+Update dataset-level settings through the dataset endpoint.
+
+**Parameters:**
+- `dataset_id` (required): Dataset ID to update
+- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}`.
+- `is_published` (optional): Publication flag on dataset endpoint.
+
+**Example:**
+```python
+update_dataset_settings(
+    dataset_id=123,
+    group_name="Climate Data Team",
+    is_published=True,
+)
+```
+
+When `group_name` is provided, the tool resolves the group through `/api/v2/groups` and updates `/api/v2/datasets/{id}` with:
+`{"group": {"pk": <resolved_pk>}}`.
 
 When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
 `{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
@@ -612,6 +627,10 @@ if status.get("status") == "finished":
         update_dataset_metadata(
             dataset_id=int(dataset_id.split("/")[-1]),
             title="Ocean field data"
+        )
+        update_dataset_settings(
+            dataset_id=int(dataset_id.split("/")[-1]),
+            is_published=True
         )
 
 # 5. Set permissions

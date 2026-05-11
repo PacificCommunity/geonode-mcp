@@ -817,7 +817,6 @@ async def update_dataset_metadata(
     title: Optional[str] = None,
     abstract: Optional[str] = None,
     license_id: Optional[int] = None,
-    group_name: Optional[str] = None,
     category: Optional[str] = None,
     owner: Optional[Dict[str, Any]] = None,
     point_of_contact: Optional[Dict[str, Any]] = None,
@@ -838,7 +837,6 @@ async def update_dataset_metadata(
         title: New title (optional)
         abstract: New abstract/description (optional)
         license_id: New license ID (optional)
-        group_name: Group name to resolve and assign on the dataset endpoint
         category: Category name to resolve via gn_description filter
         owner: Owner contact object, e.g. {"id": 1, "label": "John"}
         point_of_contact: POC contact object, e.g. {"id": 2, "label": "Jane"}
@@ -924,10 +922,12 @@ async def update_dataset_metadata(
             poc_id_int = int(poc_id)
         except (TypeError, ValueError):
             return {"error": "point_of_contact id must be an integer"}
-        contacts_payload["pointOfContact"] = [{
-            "id": poc_id_int,
-            "label": poc_label.strip(),
-        }]
+        contacts_payload["pointOfContact"] = [
+            {
+                "id": poc_id_int,
+                "label": poc_label.strip(),
+            }
+        ]
 
     if contacts_payload:
         data["contacts"] = contacts_payload
@@ -1052,71 +1052,92 @@ async def update_dataset_metadata(
         data["tkeywords"] = tkeywords_payload
 
     try:
-        metadata_result: Optional[Dict[str, Any]] = None
-        if data:
-            logger.debug(
-                "update_dataset_metadata metadata payload (dataset_id=%s): %s",
-                dataset_id,
-                _sanitize_for_logging(data),
-            )
-            metadata_result = await client.request(
-                "PATCH", f"metadata/instance/{dataset_id}", data=data
-            )
-
-        group_update_result: Optional[Dict[str, Any]] = None
-        resolved_group: Optional[Dict[str, Any]] = None
-        if group_name is not None:
-
-            groups_result = await client.request(
-                "GET",
-                "groups",
-                params={"filter{title}": group_name, "page_size": 100},
-            )
-
-            if groups_result.get("total") == 0:
-                return {"error": f"No groups found matching name: '{group_name}'"}
-            elif groups_result.get("total", 0) > 1:
-                return {"error": f"Multiple groups found matching name: '{group_name}'"}
-            elif groups_result.get("total") == 1:
-                matched_group = groups_result["group_profiles"][0]
-
-                group_pk = matched_group.get("group").get("pk")
-                matched_group_name = matched_group.get("title")
-
-                if group_pk is None:
-                    return {
-                        "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
-                    }
-
-                resolved_group = {"pk": group_pk}
-                logger.debug(
-                    "update_dataset_metadata dataset payload (dataset_id=%s): %s",
-                    dataset_id,
-                    _sanitize_for_logging({"group": resolved_group}),
-                )
-                group_update_result = await client.request(
-                    "PATCH",
-                    f"datasets/{dataset_id}",
-                    data={"group": resolved_group},
-                )
-
-        if metadata_result is not None and group_update_result is None:
-            return metadata_result
-        if metadata_result is None and group_update_result is not None:
-            return {
-                "dataset_update": group_update_result,
-                "resolved_group": resolved_group,
-            }
-        if metadata_result is not None and group_update_result is not None:
-            return {
-                "metadata_update": metadata_result,
-                "dataset_update": group_update_result,
-                "resolved_group": resolved_group,
-            }
-
-        return {"error": "No metadata fields or group_name provided for update"}
+        if not data:
+            return {"error": "No metadata fields provided for update"}
+        logger.debug(
+            "update_dataset_metadata metadata payload (dataset_id=%s): %s",
+            dataset_id,
+            _sanitize_for_logging(data),
+        )
+        return await client.request(
+            "PATCH", f"metadata/instance/{dataset_id}", data=data
+        )
     except Exception as e:
         return {"error": f"Failed to update dataset metadata: {e}"}
+
+
+@mcp.tool()
+async def update_dataset_settings(
+    dataset_id: int,
+    group_name: Optional[str] = None,
+    is_published: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """
+    Update dataset-level settings on the dataset endpoint.
+
+    Args:
+        dataset_id: ID of the dataset to update
+        group_name: Group name to resolve and assign on the dataset endpoint
+        is_published: Whether the dataset should be published (optional)
+
+    Returns:
+        Dictionary containing update status
+    """
+    client = get_client()
+    dataset_patch_data: Dict[str, Any] = {}
+    resolved_group: Optional[Dict[str, Any]] = None
+
+    if group_name is not None:
+        group_name_clean = group_name.strip()
+        if not group_name_clean:
+            return {"error": "group_name must be a non-empty string"}
+        groups_result = await client.request(
+            "GET",
+            "groups",
+            params={"filter{title}": group_name_clean, "page_size": 100},
+        )
+        if groups_result.get("total") == 0:
+            return {"error": f"No groups found matching name: '{group_name_clean}'"}
+        if groups_result.get("total", 0) > 1:
+            return {
+                "error": f"Multiple groups found matching name: '{group_name_clean}'"
+            }
+        matched_group = groups_result["group_profiles"][0]
+        group_data = matched_group.get("group") or {}
+        group_pk = group_data.get("pk")
+        matched_group_name = matched_group.get("title")
+        if group_pk is None:
+            return {
+                "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
+            }
+        resolved_group = {"pk": group_pk}
+        dataset_patch_data["group"] = resolved_group
+
+    if is_published is not None:
+        dataset_patch_data["is_published"] = is_published
+
+    if not dataset_patch_data:
+        return {"error": "No dataset settings provided for update"}
+
+    try:
+        logger.debug(
+            "update_dataset_settings dataset payload (dataset_id=%s): %s",
+            dataset_id,
+            _sanitize_for_logging(dataset_patch_data),
+        )
+        dataset_update_result = await client.request(
+            "PATCH",
+            f"datasets/{dataset_id}",
+            data=dataset_patch_data,
+        )
+        if resolved_group is not None:
+            return {
+                "dataset_update": dataset_update_result,
+                "resolved_group": resolved_group,
+            }
+        return dataset_update_result
+    except Exception as e:
+        return {"error": f"Failed to update dataset settings: {e}"}
 
 
 @mcp.tool()
