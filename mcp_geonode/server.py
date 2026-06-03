@@ -386,6 +386,9 @@ def get_configuration_status() -> Dict[str, Any]:
 async def list_resources(
     resource_type: Optional[str] = None,
     search: Optional[str] = None,
+    query: Optional[str] = None,
+    search_fields: Optional[List[str]] = None,
+    group: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     featured: Optional[bool] = None,
@@ -394,15 +397,18 @@ async def list_resources(
     category: Optional[str] = None,
     keywords: Optional[str] = None,
     thesaurus_keywords: Optional[str] = None,
+    region: Optional[str] = None,
     owner: Optional[str] = None,
     extent: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    List GeoNode resources with filtering options.
+    List and search GeoNode resources with filtering options.
 
     Args:
         resource_type: Type of resource (dataset, map, document, service, geostory, dashboard)
         search: Free text search in title and abstract
+        query: Alias for search
+        search_fields: Fields used for text search
         page: Page number for pagination (default: 1)
         page_size: Number of items per page (default: 20)
         featured: Filter by featured status
@@ -411,6 +417,8 @@ async def list_resources(
         category: Filter by category identifier
         keywords: Filter by keyword name
         thesaurus_keywords: Filter by thesaurus keyword term
+        region: Filter by region name
+        group: Filter by group name
         owner: Filter by owner username
         extent: Bounding box extent as "minx,miny,maxx,maxy"
 
@@ -421,12 +429,13 @@ async def list_resources(
 
     params = {"page": page, "page_size": page_size}
 
-    # Add search parameters
-    if search:
-        params["search"] = search
-        params["search_fields"] = ["title", "abstract"]
+    search_term = search or query
+    if search_term:
+        params["search"] = search_term
+        params["search_fields"] = search_fields or ["title", "abstract"]
+    elif search_fields:
+        params["search_fields"] = search_fields
 
-    # Add filter parameters
     if resource_type:
         params["filter{resource_type}"] = resource_type
     if featured is not None:
@@ -439,6 +448,10 @@ async def list_resources(
         params["filter{category.identifier}"] = category
     if keywords:
         params["filter{keywords.name}"] = keywords
+    if group:
+        params["filter{group.name}"] = group
+    if region:
+        params["filter{region.name}"] = region
     if owner:
         params["filter{owner.username}"] = owner
     if extent:
@@ -484,7 +497,59 @@ async def list_resources(
 
         return result
     except Exception as e:
-        return {"error": f"Failed to list resources: {e}"}
+        detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        raise RuntimeError(
+            f"Failed to list resources with params={_sanitize_for_logging(params)}: {detail}"
+        ) from e
+
+
+@mcp.tool()
+async def list_groups(
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> Dict[str, Any]:
+    """
+    List GeoNode groups, optionally filtered by a text search query.
+
+    Args:
+        search: Free text search for group names and metadata
+        page: Page number for pagination (default: 1)
+        page_size: Number of items per page (default: 20)
+
+    Returns:
+        Dictionary containing groups list and metadata
+    """
+    client = get_client()
+
+    params = {
+        "page": page,
+        "page_size": page_size,
+    }
+    if search:
+        params["search"] = search
+
+    try:
+        result = await client.request("GET", "groups", params=params)
+        if search:
+            needle = search.strip().lower()
+            group_items = result.get("group_profiles") or result.get("groups") or []
+            if isinstance(group_items, list):
+                filtered_groups = []
+                for group_item in group_items:
+                    title = str(group_item.get("title", "")).strip().lower()
+                    group_name = str(group_item.get("name", "")).strip().lower()
+                    if needle in title or needle in group_name:
+                        filtered_groups.append(group_item)
+
+                if "group_profiles" in result:
+                    result["group_profiles"] = filtered_groups
+                elif "groups" in result:
+                    result["groups"] = filtered_groups
+                result["filtered_count"] = len(filtered_groups)
+        return result
+    except Exception as e:
+        raise RuntimeError(f"Failed to list groups: {e}") from e
 
 
 @mcp.tool()
@@ -510,7 +575,7 @@ async def list_categories(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         result = await client.request("GET", "categories", params=params)
         return result
     except Exception as e:
-        return {"error": f"Failed to list categories: {e}"}
+        raise RuntimeError(f"Failed to list categories: {e}") from e
 
 
 @mcp.tool()
@@ -536,7 +601,7 @@ async def list_tkeywords(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         result = await client.request("GET", "tkeywords", params=params)
         return result
     except Exception as e:
-        return {"error": f"Failed to list tkeywords: {e}"}
+        raise RuntimeError(f"Failed to list tkeywords: {e}") from e
 
 
 @mcp.tool()
@@ -619,44 +684,6 @@ async def download_resource(
         }
     except Exception as e:
         return {"error": f"Failed to get download information: {e}"}
-
-
-@mcp.tool()
-async def search_resources(
-    query: str,
-    search_fields: List[str] = ["title", "abstract"],
-    resource_type: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 20,
-) -> Dict[str, Any]:
-    """
-    Search resources by text query.
-
-    Args:
-        query: Search query text
-        search_fields: Fields to search in (title, abstract)
-        resource_type: Filter by resource type (optional)
-        page: Page number for pagination
-        page_size: Number of items per page
-
-    Returns:
-        Dictionary containing search results
-    """
-    client = get_client()
-
-    params = {"search": query, "page": page, "page_size": page_size}
-
-    for field in search_fields:
-        params["search_fields"] = field
-
-    if resource_type:
-        params["filter{resource_type}"] = resource_type
-
-    try:
-        result = await client.request("GET", "resources", params=params)
-        return result
-    except Exception as e:
-        return {"error": f"Failed to search resources: {e}"}
 
 
 @mcp.tool()
@@ -816,7 +843,8 @@ async def update_dataset_metadata(
     dataset_id: int,
     title: Optional[str] = None,
     abstract: Optional[str] = None,
-    license_id: Optional[int] = None,
+    edition: Optional[str] = None,
+    license_id: Optional[str] = None,
     category: Optional[str] = None,
     owner: Optional[Dict[str, Any]] = None,
     point_of_contact: Optional[Dict[str, Any]] = None,
@@ -836,6 +864,7 @@ async def update_dataset_metadata(
         dataset_id: ID of the metadata instance to update
         title: New title (optional)
         abstract: New abstract/description (optional)
+        edition: Edition/version label for the dataset metadata (optional)
         license_id: New license ID (optional)
         category: Category name to resolve via gn_description filter
         owner: Owner contact object, e.g. {"id": 1, "label": "John"}
@@ -876,8 +905,10 @@ async def update_dataset_metadata(
         data["title"] = title
     if abstract is not None:
         data["abstract"] = abstract
+    if edition is not None:
+        data["edition"] = edition
     if license_id is not None:
-        data["license"] = license_id
+        data["license"] = {"id": license_id}
     if attribution is not None:
         data["attribution"] = attribution
     if maintenance_frequency is not None:
@@ -890,9 +921,9 @@ async def update_dataset_metadata(
         elif maintenance_frequency_clean in label_to_code:
             maintenance_frequency_code = label_to_code[maintenance_frequency_clean]
         else:
-            return {
-                "error": f"Invalid maintenance frequency: '{maintenance_frequency}'"
-            }
+            raise ValueError(
+                f"Invalid maintenance frequency: '{maintenance_frequency}'"
+            )
         data["maintenance_frequency"] = maintenance_frequency_code
     if supplemental_information is not None:
         data["supplemental_information"] = supplemental_information
@@ -906,22 +937,22 @@ async def update_dataset_metadata(
             or not isinstance(owner_label, str)
             or not owner_label.strip()
         ):
-            return {"error": "owner must include non-empty label and id"}
+            raise ValueError("owner must include non-empty label and id")
         try:
             owner_id_int = int(owner_id)
         except (TypeError, ValueError):
-            return {"error": "owner id must be an integer"}
+            raise ValueError("owner id must be an integer")
         contacts_payload["owner"] = {"id": owner_id_int, "label": owner_label.strip()}
 
     if point_of_contact is not None:
         poc_id = point_of_contact.get("id")
         poc_label = point_of_contact.get("label")
         if poc_id is None or not isinstance(poc_label, str) or not poc_label.strip():
-            return {"error": "point_of_contact must include non-empty label and id"}
+            raise ValueError("point_of_contact must include non-empty label and id")
         try:
             poc_id_int = int(poc_id)
         except (TypeError, ValueError):
-            return {"error": "point_of_contact id must be an integer"}
+            raise ValueError("point_of_contact id must be an integer")
         contacts_payload["pointOfContact"] = [
             {
                 "id": poc_id_int,
@@ -934,11 +965,11 @@ async def update_dataset_metadata(
 
     if hkeywords is not None:
         if not isinstance(hkeywords, list):
-            return {"error": "hkeywords must be a list of strings"}
+            raise ValueError("hkeywords must be a list of strings")
         parsed_hkeywords: List[str] = []
         for keyword in hkeywords:
             if not isinstance(keyword, str):
-                return {"error": "hkeywords must be a list of strings"}
+                raise ValueError("hkeywords must be a list of strings")
             cleaned_keyword = keyword.strip()
             if cleaned_keyword and cleaned_keyword not in parsed_hkeywords:
                 parsed_hkeywords.append(cleaned_keyword)
@@ -947,7 +978,7 @@ async def update_dataset_metadata(
     if category is not None:
         category_clean = category.strip()
         if not category_clean:
-            return {"error": "category must be a non-empty string"}
+            raise ValueError("category must be a non-empty string")
 
         categories_result = await client.request(
             "GET",
@@ -956,11 +987,11 @@ async def update_dataset_metadata(
         )
         matched_category: Optional[Dict[str, Any]] = None
         if categories_result.get("total") == 0:
-            return {"error": f"No category found matching name: '{category_clean}'"}
+            raise ValueError(f"No category found matching name: '{category_clean}'")
         elif categories_result.get("total", 0) > 1:
-            return {
-                "error": f"Multiple categories found matching name: '{category_clean}'"
-            }
+            raise ValueError(
+                f"Multiple categories found matching name: '{category_clean}'"
+            )
         elif categories_result.get("total") == 1:
             matched_category = categories_result["categories"][0]
 
@@ -968,16 +999,16 @@ async def update_dataset_metadata(
             category_id = matched_category.get("identifier")
             matched_category_label = matched_category.get("gn_description")
             if category_id is None:
-                return {
-                    "error": f"Resolved category '{matched_category_label}' does not have an id"
-                }
+                raise ValueError(
+                    f"Resolved category '{matched_category_label}' does not have an id"
+                )
             data["category"] = {"id": category_id, "label": matched_category_label}
 
     if regions is not None:
         cleaned_regions = []
         for region in regions:
             if not isinstance(region, str) or not region.strip():
-                return {"error": "Each regions value must be a non-empty string"}
+                raise ValueError("Each regions value must be a non-empty string")
             cleaned_regions.append(region.strip())
 
         resolved_regions: List[Dict[str, Any]] = []
@@ -988,11 +1019,11 @@ async def update_dataset_metadata(
                 params={"filter{name}": region_name, "page_size": 100},
             )
             if regions_result.get("total") == 0:
-                return {"error": f"No region found matching name: '{region_name}'"}
+                raise ValueError(f"No region found matching name: '{region_name}'")
             elif regions_result.get("total", 0) > 1:
-                return {
-                    "error": f"Multiple regions found matching name: '{region_name}'"
-                }
+                raise ValueError(
+                    f"Multiple regions found matching name: '{region_name}'"
+                )
             elif regions_result.get("total") == 1:
                 matched_region = regions_result["regions"][0]
                 resolved_regions.append(
@@ -1012,36 +1043,28 @@ async def update_dataset_metadata(
 
         for entry in tkeywords:
             if not isinstance(entry, dict):
-                return {
-                    "error": (
-                        "Each tkeywords entry must be an object like "
-                        '{"themes": ["id1", "id2"]}'
-                    )
-                }
+                raise ValueError(
+                    'Each tkeywords entry must be an object like {"themes": ["id1", "id2"]}'
+                )
 
             for thesaurus_name, keyword_ids in entry.items():
                 if not isinstance(thesaurus_name, str) or not thesaurus_name.strip():
-                    return {
-                        "error": "Each tkeywords thesaurus name must be a non-empty string"
-                    }
+                    raise ValueError(
+                        "Each tkeywords thesaurus name must be a non-empty string"
+                    )
                 if not isinstance(keyword_ids, list):
-                    return {
-                        "error": (
-                            f"tkeywords for thesaurus '{thesaurus_name}' must be a list of IDs"
-                        )
-                    }
+                    raise ValueError(
+                        f"tkeywords for thesaurus '{thesaurus_name}' must be a list of IDs"
+                    )
 
                 existing_ids = {
                     item["id"] for item in tkeywords_payload.get(thesaurus_name, [])
                 }
                 for keyword_id in keyword_ids:
                     if not isinstance(keyword_id, str) or not keyword_id.strip():
-                        return {
-                            "error": (
-                                f"Invalid keyword id in thesaurus '{thesaurus_name}': "
-                                "all IDs must be non-empty strings"
-                            )
-                        }
+                        raise ValueError(
+                            f"Invalid keyword id in thesaurus '{thesaurus_name}': all IDs must be non-empty strings"
+                        )
                     keyword_id_clean = keyword_id.strip()
                     if keyword_id_clean not in existing_ids:
                         tkeywords_payload.setdefault(thesaurus_name, []).append(
@@ -1051,19 +1074,14 @@ async def update_dataset_metadata(
 
         data["tkeywords"] = tkeywords_payload
 
-    try:
-        if not data:
-            return {"error": "No metadata fields provided for update"}
-        logger.debug(
-            "update_dataset_metadata metadata payload (dataset_id=%s): %s",
-            dataset_id,
-            _sanitize_for_logging(data),
-        )
-        return await client.request(
-            "PATCH", f"metadata/instance/{dataset_id}", data=data
-        )
-    except Exception as e:
-        return {"error": f"Failed to update dataset metadata: {e}"}
+    if not data:
+        raise ValueError("No metadata fields provided for update")
+    logger.debug(
+        "update_dataset_metadata metadata payload (dataset_id=%s): %s",
+        dataset_id,
+        _sanitize_for_logging(data),
+    )
+    return await client.request("PATCH", f"metadata/instance/{dataset_id}", data=data)
 
 
 @mcp.tool()
@@ -1071,6 +1089,8 @@ async def update_dataset_settings(
     dataset_id: int,
     group_name: Optional[str] = None,
     is_published: Optional[bool] = None,
+    is_approved: Optional[bool] = None,
+    advertised: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Update dataset-level settings on the dataset endpoint.
@@ -1079,6 +1099,8 @@ async def update_dataset_settings(
         dataset_id: ID of the dataset to update
         group_name: Group name to resolve and assign on the dataset endpoint
         is_published: Whether the dataset should be published (optional)
+        is_approved: Whether the dataset should be approved (optional)
+        advertised: Whether the dataset should be advertised (optional)
 
     Returns:
         Dictionary containing update status
@@ -1110,12 +1132,15 @@ async def update_dataset_settings(
             return {
                 "error": f"Resolved group '{matched_group_name}' does not have a pk/id"
             }
-        resolved_group = {"pk": group_pk}
+        resolved_group = {"pk": group_pk, "name": group_data.get("name")}
         dataset_patch_data["group"] = resolved_group
 
     if is_published is not None:
         dataset_patch_data["is_published"] = is_published
-
+    if advertised is not None:
+        dataset_patch_data["advertised"] = advertised
+    if is_approved is not None:
+        dataset_patch_data["is_approved"] = is_approved
     if not dataset_patch_data:
         return {"error": "No dataset settings provided for update"}
 
@@ -1160,7 +1185,7 @@ async def list_users(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         result = await client.request("GET", "users", params=params)
         return result
     except Exception as e:
-        return {"error": f"Failed to list users: {e}"}
+        raise RuntimeError(f"Failed to list users: {e}") from e
 
 
 @mcp.tool()
@@ -1326,7 +1351,7 @@ async def list_linked_resources(resource_id: int) -> Dict[str, Any]:
         )
         return result
     except Exception as e:
-        return {"error": f"Failed to list linked resources: {e}"}
+        raise RuntimeError(f"Failed to list linked resources: {e}") from e
 
 
 def main():

@@ -120,6 +120,12 @@ list_resources(resource_type="dataset")
 # Search with text query
 list_resources(search="climate", page=1, page_size=10)
 
+# Filter by region
+list_resources(region="Pacific")
+
+# Search groups
+list_groups(search="maritime")
+
 # Filter by multiple criteria
 list_resources(
     resource_type="dataset",
@@ -128,6 +134,8 @@ list_resources(
     category="environment"
 )
 ```
+
+`list_groups` uses `/api/v2/groups?search=...` and then applies a title/name fallback filter on the returned groups.
 
 ### Resource Details
 ```python
@@ -204,7 +212,8 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    license_id=7,
+    edition="v2024.1",
+    license_id="cc-by",
     category="Climate and Meteorology",
     owner={"id": 10, "label": "Data Manager"},
     point_of_contact={"id": 12, "label": "GIS Officer"},
@@ -222,7 +231,8 @@ update_dataset_metadata(
 update_dataset_settings(
     dataset_id=123,
     group_name="Climate Data Team",
-    is_published=True
+    is_published=True,
+    advertised=True
 )
 ```
 
@@ -236,11 +246,11 @@ update_dataset_settings(
 
 ### Resource Management
 - `list_resources`: List and filter resources
+- `list_groups`: List and search groups
 - `list_categories`: List available categories
 - `list_tkeywords`: List thesaurus taxonomy keywords
 - `get_resource_details`: Get basic resource information
 - `get_dataset_details`: Get detailed dataset information
-- `search_resources`: Search resources by text query
 - `download_resource`: Get download URLs
 - `delete_resource`: Remove resources
 - `update_dataset_metadata`: Update dataset metadata fields via metadata instance endpoint

@@ -102,7 +102,7 @@ You can use environment variables for basic settings and override specific value
    list_resources(page=1, page_size=10)
    
    # Search for specific content
-   search_resources(query="climate data")
+   list_resources(query="climate data")
    ```
 
 ## Authentication Methods
@@ -180,11 +180,13 @@ get_configuration_status()
 ### Resource Management Tools
 
 #### `list_resources`
-List and filter GeoNode resources.
+List and search GeoNode resources.
 
 **Parameters:**
 - `resource_type` (optional): Filter by type (dataset, map, document, service, geostory, dashboard)
 - `search` (optional): Free text search in title and abstract
+- `query` (optional): Alias for `search`
+- `search_fields` (optional): Fields to search in (default: ["title", "abstract"])
 - `page` (optional): Page number (default: 1)
 - `page_size` (optional): Items per page (default: 20)
 - `featured` (optional): Filter by featured status
@@ -193,6 +195,8 @@ List and filter GeoNode resources.
 - `category` (optional): Filter by category identifier
 - `keywords` (optional): Filter by keyword name
 - `thesaurus_keywords` (optional): Filter by thesaurus keyword term (`tkeywords`)
+- `region` (optional): Filter by region name
+- `group_name` (optional): Filter by group name
 - `owner` (optional): Filter by owner username
 - `extent` (optional): Bounding box as "minx,miny,maxx,maxy"
 
@@ -215,9 +219,36 @@ list_resources(
 # List resources within geographic extent
 list_resources(extent="-180,-90,180,90")
 
+# Search by text query
+list_resources(search="climate")
+
+# Search only in titles for datasets
+list_resources(query="temperature", search_fields=["title"], resource_type="dataset")
+
+# Filter by region
+list_resources(region="Pacific")
+
 # Filter by thesaurus keyword term
 list_resources(thesaurus_keywords="Ocean and Maritime")
+
+# Filter by group name
+list_resources(group_name="Climate Data Team")
 ```
+
+#### `list_groups`
+List GeoNode groups and search them by text query.
+
+**Parameters:**
+- `search` (optional): Free text search for group names and metadata
+- `page` (optional): Page number (default: 1)
+- `page_size` (optional): Items per page (default: 20)
+
+**Example:**
+```python
+list_groups(search="maritime")
+```
+
+The tool queries `/api/v2/groups?search=...` and then applies a fallback filter on group titles and names.
 
 #### `list_categories`
 List available GeoNode categories.
@@ -265,29 +296,6 @@ Get detailed dataset information including additional metadata.
 get_dataset_details(dataset_id=123)
 ```
 
-#### `search_resources`
-Search resources using text queries.
-
-**Parameters:**
-- `query` (required): Search text
-- `search_fields` (optional): Fields to search in (default: ["title", "abstract"])
-- `resource_type` (optional): Filter by resource type
-- `page` (optional): Page number (default: 1)
-- `page_size` (optional): Items per page (default: 20)
-
-**Examples:**
-```python
-# Basic text search
-search_resources(query="climate")
-
-# Search only in titles for datasets
-search_resources(
-    query="temperature",
-    search_fields=["title"],
-    resource_type="dataset"
-)
-```
-
 #### `download_resource`
 Get download URLs for resources.
 
@@ -318,6 +326,7 @@ Update metadata for a dataset.
 - `dataset_id` (required): Metadata instance ID to update
 - `title` (optional): New title
 - `abstract` (optional): New description
+- `edition` (optional): Edition/version label for the dataset metadata
 - `license_id` (optional): New license ID
 - `category` (optional): Category name. Resolved via `/api/v2/categories` with `filter{gn_description}`
 - `owner` (optional): Owner contact object with `id` and `label`
@@ -338,7 +347,8 @@ update_dataset_metadata(
     dataset_id=123,
     title="Updated Dataset Title",
     abstract="Updated description",
-    license_id=7,
+    edition="v2024.1",
+    license_id="cc-by-4.0",
     category="Climate and Meteorology",
     owner={"id": 10, "label": "Data Manager"},
     point_of_contact={"id": 12, "label": "GIS Officer"},
@@ -355,26 +365,6 @@ update_dataset_metadata(
     ],
 )
 ```
-
-#### `update_dataset_settings`
-Update dataset-level settings through the dataset endpoint.
-
-**Parameters:**
-- `dataset_id` (required): Dataset ID to update
-- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}`.
-- `is_published` (optional): Publication flag on dataset endpoint.
-
-**Example:**
-```python
-update_dataset_settings(
-    dataset_id=123,
-    group_name="Climate Data Team",
-    is_published=True,
-)
-```
-
-When `group_name` is provided, the tool resolves the group through `/api/v2/groups` and updates `/api/v2/datasets/{id}` with:
-`{"group": {"pk": <resolved_pk>}}`.
 
 When `category` is provided, it is resolved to its ID via `/api/v2/categories` with `filter{gn_description}` and transformed to:
 `{"id": <resolved_identifier>, "label": <resolved_gn_description>}`.
@@ -394,6 +384,28 @@ When temporal extent values are provided, they are sent as top-level fields:
 `"temporal_extent_start": "<value>"` and `"temporal_extent_end": "<value>"`.
 
 Use `/api/v2/metadata/autocomplete/thesaurus/{thesaurus}/keywords?q=...` first to get exact keyword IDs, then pass those IDs in `tkeywords`.
+
+#### `update_dataset_settings`
+Update dataset-level settings through the dataset endpoint.
+
+**Parameters:**
+- `dataset_id` (required): Dataset ID to update
+- `group_name` (optional): Dataset group name. The tool resolves this to a group `pk` and patches `/api/v2/datasets/{id}`.
+- `is_published` (optional): Publication flag on dataset endpoint.
+- `advertised` (optional): Advertisement flag on dataset endpoint.
+
+**Example:**
+```python
+update_dataset_settings(
+    dataset_id=123,
+    group_name="Climate Data Team",
+    is_published=True,
+    advertised=True,
+)
+```
+
+When `group_name` is provided, the tool resolves the group through `/api/v2/groups` and updates `/api/v2/datasets/{id}` with:
+`{"group": {"pk": <resolved_pk>}}`.
 
 #### `list_linked_resources`
 List resources linked to a specific resource.
@@ -588,7 +600,7 @@ set_resource_permissions(
 configure_geonode(base_url="https://demo.geonode.org")
 
 # 2. Search for relevant data
-results = search_resources(query="climate temperature")
+results = list_resources(query="climate temperature")
 
 # 3. Get details for interesting resources
 for resource in results.get("resources", []):
@@ -670,14 +682,12 @@ user_details = get_user_details(new_user["id"])
 The MCP server includes comprehensive error handling:
 
 ```python
-# Errors are returned in the response
-result = list_resources(resource_type="invalid_type")
-
-if "error" in result:
-    print(f"Error: {result['error']}")
-else:
-    # Process successful result
+# List tools now raise exceptions on failure
+try:
+    result = list_resources(resource_type="invalid_type")
     print(f"Found {len(result.get('resources', []))} resources")
+except Exception as exc:
+    print(f"Error: {exc}")
 ```
 
 Common error scenarios:
@@ -701,7 +711,7 @@ Common error scenarios:
 
 3. **Use specific searches** rather than broad queries:
    ```python
-   search_resources(query="climate temperature", search_fields=["title"])
+   list_resources(query="climate temperature", search_fields=["title"])
    ```
 
 4. **Check upload status periodically** rather than continuously:

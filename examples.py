@@ -40,9 +40,18 @@ async def example_workflow():
     print("   }")
     print("   Result: Would return first 5 datasets")
 
-    # Step 3: Search resources
-    print("\n3. Searching for climate-related resources...")
-    print("   Tool: search_resources")
+    # Step 3: Search groups
+    print("\n3. Searching for maritime groups...")
+    print("   Tool: list_groups")
+    print("   Args: {")
+    print('     "search": "maritime",')
+    print('     "page_size": 3')
+    print("   }")
+    print("   Result: Would return matching groups")
+
+    # Step 4: Search resources
+    print("\n4. Searching for climate-related resources...")
+    print("   Tool: list_resources")
     print("   Args: {")
     print('     "query": "climate",')
     print('     "search_fields": ["title", "abstract"],')
@@ -50,16 +59,16 @@ async def example_workflow():
     print("   }")
     print("   Result: Would return climate-related resources")
 
-    # Step 4: Get resource details
-    print("\n4. Getting details for a specific resource...")
+    # Step 5: Get resource details
+    print("\n5. Getting details for a specific resource...")
     print("   Tool: get_resource_details")
     print("   Args: {")
     print('     "resource_id": 1234')
     print("   }")
     print("   Result: Would return detailed resource information")
 
-    # Step 5: Download information
-    print("\n5. Getting download information...")
+    # Step 6: Download information
+    print("\n6. Getting download information...")
     print("   Tool: download_resource")
     print("   Args: {")
     print('     "resource_id": 1234,')
@@ -67,8 +76,8 @@ async def example_workflow():
     print("   }")
     print("   Result: Would return download URL")
 
-    # Step 6: List users
-    print("\n6. Listing users...")
+    # Step 7: List users
+    print("\n7. Listing users...")
     print("   Tool: list_users")
     print("   Args: {")
     print('     "page": 1,')
@@ -76,8 +85,8 @@ async def example_workflow():
     print("   }")
     print("   Result: Would return user list")
 
-    # Step 7: Check permissions
-    print("\n7. Checking resource permissions...")
+    # Step 8: Check permissions
+    print("\n8. Checking resource permissions...")
     print("   Tool: get_resource_permissions")
     print("   Args: {")
     print('     "resource_id": 1234')
@@ -101,7 +110,12 @@ def show_available_tools():
         },
         {
             "name": "list_resources",
-            "description": "List GeoNode resources with filtering options",
+            "description": "List and search GeoNode resources with filtering options",
+            "category": "Resource Management",
+        },
+        {
+            "name": "list_groups",
+            "description": "List and search GeoNode groups",
             "category": "Resource Management",
         },
         {
@@ -122,11 +136,6 @@ def show_available_tools():
         {
             "name": "get_dataset_details",
             "description": "Get detailed information about a specific dataset",
-            "category": "Resource Management",
-        },
-        {
-            "name": "search_resources",
-            "description": "Search resources by text query",
             "category": "Resource Management",
         },
         {
