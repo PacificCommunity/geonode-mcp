@@ -5,6 +5,7 @@ A Model Context Protocol (MCP) server for interacting with GeoNode APIs. This se
 ## Features
 
 ### Resource Management
+- **List Regions**: Browse available GeoNode regions
 - **List Resources**: Browse and filter resources by type, status, categories, keywords, and more
 - **Resource Details**: Get detailed information about specific resources and datasets
 - **Search**: Full-text search across resource titles and abstracts
@@ -40,6 +41,17 @@ pip install mcp httpx pydantic
 python main.py
 # or
 python cli.py
+# or
+mcp-geonode-cli serve
+```
+
+3. Call tools directly from CLI (no MCP client required):
+```bash
+# List callable tools
+mcp-geonode-cli list-tools
+
+# Call a tool with JSON args
+mcp-geonode-cli call list_resources --args '{"resource_type":"dataset","page_size":5}' --pretty
 ```
 
 ## Configuration
@@ -108,6 +120,15 @@ GEONODE_TOKEN=your_api_token
 ```
 
 ## Usage Examples
+
+### Listing Regions
+```python
+# List all regions
+list_regions()
+# Filter by region name
+list_regions(filters={"filter{code}": "FJI"})
+list_regions(filters={"filter{name}": "Fiji"})
+```
 
 ### Listing Resources
 ```python

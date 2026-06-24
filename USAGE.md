@@ -14,9 +14,20 @@ This guide provides detailed instructions for using the MCP GeoNode Server to in
    python main.py
    # or
    python cli.py
+   # or
+   mcp-geonode-cli serve
    ```
 
-3. **Connect with an MCP client and configure GeoNode:**
+3. **Optional: call tools directly from CLI:**
+   ```bash
+   # list callable tools
+   mcp-geonode-cli list-tools
+
+   # call a tool directly
+   mcp-geonode-cli call list_resources --args '{"resource_type":"dataset","page_size":5}' --pretty
+   ```
+
+4. **Connect with an MCP client and configure GeoNode:**
 ## Configuration
 
 The MCP GeoNode server supports multiple configuration methods for maximum flexibility:
@@ -178,6 +189,19 @@ get_configuration_status()
 ```
 
 ### Resource Management Tools
+
+#### `list_regions`
+List available GeoNode regions.
+
+**Parameters:**
+- `page` (optional): Page number (default: 1)
+- `page_size` (optional): Items per page (default: 20)
+- `filters` (optional): Dictionary of additional filters to apply (e.g., {"filter{code}": "NA"})
+
+**Example:**
+```python
+list_regions(page=1, page_size=20, filters={"filter{code}": "NA"})
+```
 
 #### `list_resources`
 List and search GeoNode resources.

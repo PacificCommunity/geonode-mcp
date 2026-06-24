@@ -551,6 +551,34 @@ async def list_groups(
     except Exception as e:
         raise RuntimeError(f"Failed to list groups: {e}") from e
 
+@mcp.tool()
+async def list_regions(page: int = 1, page_size: int = 20, filters: Optional[dict] = None) -> Dict[str, Any]:
+    """
+    List available GeoNode regions.
+
+    Args:
+        page: Page number for pagination
+        page_size: Number of items per page
+        filters: Optional dictionary of additional filters to apply (e.g., {"filter{code}": "NA"})
+
+    Returns:
+        Dictionary containing regions list and metadata
+    """
+    client = get_client()
+
+    params = {
+        "page": page,
+        "page_size": page_size,
+    }
+    if filters:
+        params.update(filters)
+
+    try:
+        result = await client.request("GET", "regions", params=params)
+        return result
+    except Exception as e:
+        raise RuntimeError(f"Failed to list regions: {e}") from e
+
 
 @mcp.tool()
 async def list_categories(page: int = 1, page_size: int = 20) -> Dict[str, Any]:
@@ -870,7 +898,7 @@ async def update_dataset_metadata(
         owner: Owner contact object, e.g. {"id": 1, "label": "John"}
         point_of_contact: POC contact object, e.g. {"id": 2, "label": "Jane"}
         hkeywords: Pre-split keywords list (from CSV `Keywords` column)
-        regions: Region labels to associate with the metadata record
+        regions: Region labels or code to associate with the metadata record
         temporal_extent_start: Temporal extent start date/time
         temporal_extent_end: Temporal extent end date/time
         attribution: Attribution statement
@@ -1013,11 +1041,19 @@ async def update_dataset_metadata(
 
         resolved_regions: List[Dict[str, Any]] = []
         for region_name in cleaned_regions:
-            regions_result = await client.request(
-                "GET",
-                "regions",
-                params={"filter{name}": region_name, "page_size": 100},
-            )
+            # Assume it's a code and use list_regions with code filter to resolve the name
+            if len(region_name) == 3:
+                regions_result = await client.request(
+                    "GET",
+                    "regions",
+                    params={"filter{code}": region_name, "page_size": 100},
+                )
+            else:
+                regions_result = await client.request(
+                    "GET",
+                    "regions",
+                    params={"filter{name}": region_name, "page_size": 100},
+                )
             if regions_result.get("total") == 0:
                 raise ValueError(f"No region found matching name: '{region_name}'")
             elif regions_result.get("total", 0) > 1:
