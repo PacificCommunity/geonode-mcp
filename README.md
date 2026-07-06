@@ -188,6 +188,12 @@ upload_document(
     doc_url="https://example.com/document.pdf",
     title="Remote Document"
 )
+
+# Upload an ISO 19139 metadata XML to an existing dataset
+upload_dataset_metadata_xml(
+    dataset_id=123,
+    xml_file_path="/path/to/metadata.xml"
+)
 ```
 
 ### Permissions Management
@@ -245,6 +251,7 @@ update_dataset_metadata(
     attribution="Pacific Community (SPC)",
     maintenance_frequency="annually",  # code or label supported
     supplemental_information="Compiled from validated field observations.",
+    purpose="To support marine biodiversity conservation planning.",
     tkeywords=[{"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]}]
 )
 
@@ -281,6 +288,7 @@ update_dataset_settings(
 ### Data Upload
 - `upload_dataset`: Upload spatial datasets
 - `upload_document`: Upload or reference documents
+- `upload_dataset_metadata_xml`: Upload an ISO 19139 metadata XML file to an existing dataset
 - `check_upload_status`: Monitor upload progress
 
 ### User Management
@@ -312,6 +320,7 @@ The server implements the following GeoNode API endpoints:
 - `/api/v2/documents` - Document operations
 - `/api/v2/users` - User management
 - `/api/v2/executionrequest/{id}` - Upload status tracking
+- `/datasets/{alternate}/metadata_upload` - ISO 19139 metadata XML upload
 - Permission management endpoints
 
 ## Error Handling

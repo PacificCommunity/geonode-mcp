@@ -216,7 +216,7 @@ class GeoNodeClient:
 
         logger.debug("GeoNode API request: %s", request_context)
 
-        async with httpx.AsyncClient(verify=self.config.verify_ssl) as client:
+        async with httpx.AsyncClient(verify=self.config.verify_ssl, follow_redirects=True) as client:
             try:
                 if files:
                     # Remove Content-Type for file uploads to let httpx set it
@@ -551,8 +551,11 @@ async def list_groups(
     except Exception as e:
         raise RuntimeError(f"Failed to list groups: {e}") from e
 
+
 @mcp.tool()
-async def list_regions(page: int = 1, page_size: int = 20, filters: Optional[dict] = None) -> Dict[str, Any]:
+async def list_regions(
+    page: int = 1, page_size: int = 20, filters: Optional[dict] = None
+) -> Dict[str, Any]:
     """
     List available GeoNode regions.
 
@@ -847,6 +850,78 @@ async def upload_document(
 
 
 @mcp.tool()
+async def upload_dataset_metadata_xml(
+    dataset_id: int,
+    xml_file_path: str,
+) -> Dict[str, Any]:
+    """
+    Upload an ISO 19139 metadata XML file to an existing dataset.
+
+    Args:
+        dataset_id: ID of the dataset to update
+        xml_file_path: Local path to the ISO metadata XML file
+
+    Returns:
+        Dictionary containing upload status
+    """
+    client = get_client()
+
+    if not os.path.exists(xml_file_path):
+        return {"error": f"File not found: {xml_file_path}"}
+
+    url = f"{client.base_url}/api/v2/uploads/upload"
+    headers = {k: v for k, v in client.headers.items() if k != "Content-Type"}
+
+    try:
+        with open(xml_file_path, "rb") as f:
+            xml_content = f.read()
+
+        filename = os.path.basename(xml_file_path)
+        files = [
+            ("base_file", (filename, xml_content, "text/xml")),
+            ("xml_file", (filename, xml_content, "text/xml")),
+        ]
+        data = {
+            "action": "resource_metadata_upload",
+            "resource_pk": str(dataset_id),
+        }
+
+        logger.debug(
+            "upload_dataset_metadata_xml: POST %s resource_pk=%s (%d bytes)",
+            url,
+            dataset_id,
+            len(xml_content),
+        )
+
+        async with httpx.AsyncClient(verify=client.config.verify_ssl, follow_redirects=True) as http:
+            response = await http.post(url, headers=headers, files=files, data=data)
+
+        logger.debug(
+            "upload_dataset_metadata_xml response: status=%s content_type=%s",
+            response.status_code,
+            response.headers.get("content-type", ""),
+        )
+
+        response.raise_for_status()
+
+        content_type = response.headers.get("content-type", "")
+        if "application/json" in content_type:
+            return response.json()
+        return {
+            "status": "ok",
+            "http_status": response.status_code,
+            "content": response.text,
+        }
+
+    except httpx.HTTPStatusError as e:
+        return {
+            "error": f"HTTP {e.response.status_code} uploading metadata XML: {e.response.text}"
+        }
+    except Exception as e:
+        return {"error": f"Failed to upload metadata XML: {e}"}
+
+
+@mcp.tool()
 async def delete_resource(resource_id: int) -> Dict[str, Any]:
     """
     Delete a resource from GeoNode.
@@ -883,6 +958,7 @@ async def update_dataset_metadata(
     attribution: Optional[str] = None,
     maintenance_frequency: Optional[str] = None,
     supplemental_information: Optional[str] = None,
+    purpose: Optional[str] = None,
     tkeywords: Optional[List[Dict[str, List[str]]]] = None,
 ) -> Dict[str, Any]:
     """
@@ -904,6 +980,7 @@ async def update_dataset_metadata(
         attribution: Attribution statement
         maintenance_frequency: Maintenance frequency value
         supplemental_information: Supplemental information text
+        purpose: Purpose of the dataset (optional)
         tkeywords: List of dictionaries mapping thesaurus name to keyword IDs.
             Example: [{"themes": ["id1", "id2"]}, {"place": ["id3"]}]
 
@@ -955,6 +1032,8 @@ async def update_dataset_metadata(
         data["maintenance_frequency"] = maintenance_frequency_code
     if supplemental_information is not None:
         data["supplemental_information"] = supplemental_information
+    if purpose is not None:
+        data["purpose"] = purpose
 
     contacts_payload: Dict[str, Any] = {}
     if owner is not None:
