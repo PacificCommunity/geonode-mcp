@@ -783,7 +783,7 @@ Common error scenarios:
 - For Shapefiles, include all required files (.shp, .dbf, .shx, .prj)
 - Check file permissions and sizes
 - Monitor upload status for detailed error messages
-- For metadata XML uploads, ensure the dataset exists and the XML conforms to ISO 19139; a 404 means the dataset `alternate` name could not be resolved
+- For metadata XML uploads, ensure the dataset exists and the XML conforms to ISO 19139; a 404 usually means the dataset ID was not found (or the server does not support `resource_metadata_upload` on the uploads endpoint).
 
 ### Permission Issues
 - Verify user has sufficient privileges for the operation
