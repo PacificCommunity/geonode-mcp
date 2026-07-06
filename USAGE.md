@@ -501,21 +501,21 @@ upload_document(
 ```
 
 #### `upload_dataset_metadata_xml`
-Upload an ISO 19139 metadata XML file to an existing dataset. The tool resolves the dataset's `alternate` name via the API and posts the file to the GeoNode metadata upload endpoint.
+Upload an ISO 19139 metadata XML file to an existing dataset.
+
+This tool uploads the XML via the GeoNode API v2 uploads endpoint using `action=resource_metadata_upload` and `resource_pk=<dataset_id>`.
 
 **Parameters:**
 - `dataset_id` (required): ID of the dataset to update
 - `xml_file_path` (required): Local path to the ISO metadata XML file
 
 **Example:**
-```python
-upload_dataset_metadata_xml(
-    dataset_id=123,
-    xml_file_path="/path/to/metadata.xml"
-)
-```
+    upload_dataset_metadata_xml(
+        dataset_id=123,
+        xml_file_path="/path/to/metadata.xml"
+    )
 
-The file is posted as `multipart/form-data` with field name `metadata_upload_form` to `{base_url}/datasets/{alternate}/metadata_upload`.
+The file is posted as `multipart/form-data` to `{base_url}/api/v2/uploads/upload` with fields `base_file` and `xml_file`, plus form fields `action=resource_metadata_upload` and `resource_pk=<dataset_id>`.
 
 #### `check_upload_status`
 Monitor upload progress.
