@@ -362,6 +362,7 @@ Update metadata for a dataset.
 - `attribution` (optional): Attribution statement
 - `maintenance_frequency` (optional): Maintenance frequency code or label. Supported codes: `unknown`, `continual`, `notPlanned`, `daily`, `annually`, `asNeeded`, `monthly`, `fortnightly`, `irregular`, `weekly`, `biannually`, `quarterly`
 - `supplemental_information` (optional): Supplemental information text
+- `purpose` (optional): Purpose of the dataset
 - `tkeywords` (optional): List of thesaurus-to-keyword-ID maps.
   Example: `[{"themes": ["exact-id-1", "exact-id-2"]}, {"place": ["exact-id-3"]}]`
 
@@ -383,6 +384,7 @@ update_dataset_metadata(
     attribution="Pacific Community (SPC)",
     maintenance_frequency="annually",
     supplemental_information="Compiled from validated field observations.",
+    purpose="To support marine biodiversity research and conservation planning.",
     tkeywords=[
         {"themes": ["PASTE_EXACT_ID_FROM_AUTOCOMPLETE"]},
         {"place": ["PASTE_OTHER_EXACT_ID"]},
@@ -497,6 +499,23 @@ upload_document(
     title="Remote Report"
 )
 ```
+
+#### `upload_dataset_metadata_xml`
+Upload an ISO 19139 metadata XML file to an existing dataset.
+
+This tool uploads the XML via the GeoNode API v2 uploads endpoint using `action=resource_metadata_upload` and `resource_pk=<dataset_id>`.
+
+**Parameters:**
+- `dataset_id` (required): ID of the dataset to update
+- `xml_file_path` (required): Local path to the ISO metadata XML file
+
+**Example:**
+    upload_dataset_metadata_xml(
+        dataset_id=123,
+        xml_file_path="/path/to/metadata.xml"
+    )
+
+The file is posted as `multipart/form-data` to `{base_url}/api/v2/uploads/upload` with fields `base_file` and `xml_file`, plus form fields `action=resource_metadata_upload` and `resource_pk=<dataset_id>`.
 
 #### `check_upload_status`
 Monitor upload progress.
@@ -764,6 +783,7 @@ Common error scenarios:
 - For Shapefiles, include all required files (.shp, .dbf, .shx, .prj)
 - Check file permissions and sizes
 - Monitor upload status for detailed error messages
+- For metadata XML uploads, ensure the dataset exists and the XML conforms to ISO 19139; a 404 usually means the dataset ID was not found (or the server does not support `resource_metadata_upload` on the uploads endpoint).
 
 ### Permission Issues
 - Verify user has sufficient privileges for the operation
