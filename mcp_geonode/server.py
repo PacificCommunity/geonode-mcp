@@ -216,7 +216,9 @@ class GeoNodeClient:
 
         logger.debug("GeoNode API request: %s", request_context)
 
-        async with httpx.AsyncClient(verify=self.config.verify_ssl, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            verify=self.config.verify_ssl, follow_redirects=True
+        ) as client:
             try:
                 if files:
                     # Remove Content-Type for file uploads to let httpx set it
