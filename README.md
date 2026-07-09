@@ -78,6 +78,7 @@ nano .env
 - `GEONODE_PASSWORD` - Password for authentication
 - `GEONODE_TOKEN` - Bearer token for authentication (alternative to username/password)
 - `GEONODE_VERIFY_SSL` - Verify SSL certificates (default: true)
+- `GEONODE_HTTP_TIMEOUT` - HTTP request timeout in seconds (default: 30). Raise this if you see timeout errors against a slow or heavily-loaded instance.
 - `GEONODE_MAX_CONCURRENT_UPLOADS` - Maximum concurrent upload requests handled by the server (default: 5)
 - `GEONODE_LOG_FILE` - Persistent server log file path (default: `./geonode-mcp.log`)
 
@@ -382,6 +383,7 @@ All the same environment variables work in Docker:
 - `GEONODE_PASSWORD` (optional) 
 - `GEONODE_TOKEN` (optional)
 - `GEONODE_VERIFY_SSL` (optional, default: true)
+- `GEONODE_HTTP_TIMEOUT` (optional, default: 30)
 
 The container will automatically load your configuration and start the MCP server.
 
