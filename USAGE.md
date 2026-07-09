@@ -55,6 +55,7 @@ This is the most convenient method for persistent configuration.
    
     # Optional
     GEONODE_VERIFY_SSL=true
+    GEONODE_HTTP_TIMEOUT=30
     GEONODE_MAX_CONCURRENT_UPLOADS=5
     GEONODE_LOG_FILE=./geonode-mcp.log
    ```
@@ -778,6 +779,11 @@ Common error scenarios:
 - Check authentication credentials
 - Ensure SSL certificates are valid (or set `verify_ssl=False` for testing)
 
+### Timeout Issues
+- If a call times out, the error message will say whether the request may have still completed server-side (writes like `delete_resource`) or state so explicitly; a timeout is not automatically a confirmed failure — check the resource's actual state before retrying.
+- `delete_resource` specifically re-checks the resource after a timeout and reports a confirmed outcome (deleted / still exists / unknown) rather than a bare error.
+- Timeouts are more likely when many tool calls run concurrently against the same GeoNode instance (e.g. parallel scripted calls); prefer sequential calls for bulk operations, or raise `GEONODE_HTTP_TIMEOUT`.
+
 ### Upload Issues
 - Ensure file paths are correct and files exist
 - For Shapefiles, include all required files (.shp, .dbf, .shx, .prj)
@@ -810,7 +816,7 @@ configure_geonode(
 ```
 
 ### Custom Timeouts
-The HTTP client uses default timeouts. For slow GeoNode instances, consider modifying the client code to increase timeout values.
+The HTTP client timeout defaults to 30 seconds. Set `GEONODE_HTTP_TIMEOUT` (seconds) to raise it further for a slow or heavily-loaded GeoNode instance, or to lower it if you want faster failure detection.
 
 ### Batch Operations
 For bulk operations, implement retry logic and rate limiting:

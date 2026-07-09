@@ -122,6 +122,32 @@ def _load_max_concurrent_uploads() -> int:
     return parsed_value
 
 
+def _load_http_timeout() -> float:
+    """Load and validate the HTTP request timeout (seconds) from environment.
+
+    httpx's default is 5 seconds for connect/read/write/pool combined, which is
+    too tight for a GeoNode instance under concurrent load: a request can fully
+    succeed server-side and still time out client-side while waiting on the
+    response, leaving the caller unable to tell success from failure.
+    """
+    raw_value = os.getenv("GEONODE_HTTP_TIMEOUT", "30")
+    try:
+        parsed_value = float(raw_value)
+    except ValueError:
+        logger.warning(
+            "Invalid GEONODE_HTTP_TIMEOUT=%r, using default value 30", raw_value
+        )
+        return 30.0
+
+    if parsed_value <= 0:
+        logger.warning(
+            "GEONODE_HTTP_TIMEOUT must be > 0 (got %s), using 30", parsed_value
+        )
+        return 30.0
+
+    return parsed_value
+
+
 class GeoNodeConfig(BaseModel):
     """Configuration for GeoNode connection."""
 
@@ -130,6 +156,7 @@ class GeoNodeConfig(BaseModel):
     password: Optional[str] = None
     token: Optional[str] = None
     verify_ssl: bool = True
+    http_timeout: float = 30.0
 
     @classmethod
     def from_env(cls) -> Optional["GeoNodeConfig"]:
@@ -141,6 +168,7 @@ class GeoNodeConfig(BaseModel):
         - GEONODE_PASSWORD: Password for authentication (optional)
         - GEONODE_TOKEN: Bearer token for authentication (optional)
         - GEONODE_VERIFY_SSL: Whether to verify SSL certificates (default: true)
+        - GEONODE_HTTP_TIMEOUT: HTTP request timeout in seconds (default: 30)
         - GEONODE_MAX_CONCURRENT_UPLOADS: Upload concurrency limit (default: 5)
         - GEONODE_LOG_FILE: File path for persistent server logs (default: ./geonode-mcp.log)
 
@@ -160,6 +188,7 @@ class GeoNodeConfig(BaseModel):
             "yes",
             "on",
         )
+        http_timeout = _load_http_timeout()
 
         try:
             return cls(
@@ -168,6 +197,7 @@ class GeoNodeConfig(BaseModel):
                 password=password,
                 token=token,
                 verify_ssl=verify_ssl,
+                http_timeout=http_timeout,
             )
         except Exception as e:
             logger.error(f"Failed to create GeoNodeConfig from environment: {e}")
@@ -196,6 +226,21 @@ class GeoNodeClient:
             ).decode()
             self.headers["Authorization"] = f"Basic {credentials}"
 
+        # A single, shared, pooled client for the lifetime of this GeoNodeClient
+        # (which is itself a process-wide singleton, see get_client()). Opening a
+        # brand-new httpx.AsyncClient per request meant every concurrent call paid
+        # its own TCP/TLS handshake, which made timeouts far more likely under any
+        # concurrency (parallel tool calls, batch scripts, etc.).
+        self._http_client = httpx.AsyncClient(
+            verify=self.config.verify_ssl,
+            follow_redirects=True,
+            timeout=httpx.Timeout(self.config.http_timeout),
+        )
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTP client. Safe to call multiple times."""
+        await self._http_client.aclose()
+
     async def request(
         self,
         method: str,
@@ -216,66 +261,83 @@ class GeoNodeClient:
 
         logger.debug("GeoNode API request: %s", request_context)
 
-        async with httpx.AsyncClient(
-            verify=self.config.verify_ssl, follow_redirects=True
-        ) as client:
-            try:
-                if files:
-                    # Remove Content-Type for file uploads to let httpx set it
-                    headers = {
-                        k: v for k, v in self.headers.items() if k != "Content-Type"
-                    }
-                    response = await client.request(
-                        method,
-                        url,
-                        headers=headers,
-                        params=params,
-                        data=data,
-                        files=files,
-                    )
-                else:
-                    response = await client.request(
-                        method, url, headers=self.headers, params=params, json=data
-                    )
-
-                logger.debug(
-                    "GeoNode API response: %s",
-                    {
-                        "method": method,
-                        "url": url,
-                        "status_code": response.status_code,
-                        "content_type": response.headers.get("content-type", ""),
-                    },
-                )
-
-                response.raise_for_status()
-
-                # Handle different content types
-                content_type = response.headers.get("content-type", "")
-                if "application/json" in content_type:
-                    return response.json()
-                else:
-                    return {"content": response.text, "content_type": content_type}
-
-            except httpx.HTTPStatusError as e:
-                logger.error(
-                    "HTTP error %s for %s %s with request=%s: %s",
-                    e.response.status_code,
+        client = self._http_client
+        try:
+            if files:
+                # Remove Content-Type for file uploads to let httpx set it
+                headers = {
+                    k: v for k, v in self.headers.items() if k != "Content-Type"
+                }
+                response = await client.request(
                     method,
                     url,
-                    request_context,
-                    e.response.text,
+                    headers=headers,
+                    params=params,
+                    data=data,
+                    files=files,
                 )
-                raise
-            except Exception as e:
-                logger.error(
-                    "Request failed for %s %s with request=%s: %s",
-                    method,
-                    url,
-                    request_context,
-                    e,
+            else:
+                response = await client.request(
+                    method, url, headers=self.headers, params=params, json=data
                 )
-                raise
+
+            logger.debug(
+                "GeoNode API response: %s",
+                {
+                    "method": method,
+                    "url": url,
+                    "status_code": response.status_code,
+                    "content_type": response.headers.get("content-type", ""),
+                },
+            )
+
+            response.raise_for_status()
+
+            # Handle different content types
+            content_type = response.headers.get("content-type", "")
+            if "application/json" in content_type:
+                return response.json()
+            else:
+                return {"content": response.text, "content_type": content_type}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error %s for %s %s with request=%s: %s",
+                e.response.status_code,
+                method,
+                url,
+                request_context,
+                e.response.text,
+            )
+            raise
+        except httpx.TimeoutException as e:
+            # Distinct from other errors: a timeout means we never confirmed the
+            # outcome. The request may well have completed on the GeoNode side
+            # (the connection/response just wasn't seen in time), so callers
+            # must not treat this the same as a confirmed server-side failure.
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            msg = (
+                f"No response from GeoNode within {self.config.http_timeout}s for "
+                f"{method} {url} ({detail}). The request may have still completed "
+                "server-side despite this client-side timeout; verify the "
+                "resource's actual state before retrying or reporting failure."
+            )
+            logger.error(msg)
+            raise TimeoutError(msg) from e
+        except Exception as e:
+            # Wrap so the exception message is never blank downstream: many
+            # transport-level exceptions (e.g. httpx.ConnectError) stringify to
+            # "" on their own, and every tool function does `f"...: {e}"` when
+            # reporting failure to the caller.
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.error(
+                "Request failed for %s %s with request=%s: %s",
+                method,
+                url,
+                request_context,
+                detail,
+            )
+            raise RuntimeError(detail) from e
 
 
 # Create the MCP server
@@ -323,6 +385,7 @@ def get_client() -> GeoNodeClient:
             "- GEONODE_PASSWORD (optional)\n"
             "- GEONODE_TOKEN (optional)\n"
             "- GEONODE_VERIFY_SSL (optional, default: true)\n"
+            "- GEONODE_HTTP_TIMEOUT (optional, default: 30)\n"
             "- GEONODE_MAX_CONCURRENT_UPLOADS (optional, default: 5)\n"
             "\nOr create a .env file with these variables."
         )
@@ -346,6 +409,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "has_username": False,
         "has_token": False,
         "verify_ssl": True,
+        "http_timeout": 30.0,
         "max_concurrent_uploads": MAX_CONCURRENT_UPLOADS,
         "log_file": str(LOG_FILE_PATH),
         "env_vars_available": {},
@@ -358,6 +422,7 @@ def get_configuration_status() -> Dict[str, Any]:
         "GEONODE_PASSWORD": "***" if os.getenv("GEONODE_PASSWORD") else None,
         "GEONODE_TOKEN": "***" if os.getenv("GEONODE_TOKEN") else None,
         "GEONODE_VERIFY_SSL": os.getenv("GEONODE_VERIFY_SSL", "true"),
+        "GEONODE_HTTP_TIMEOUT": os.getenv("GEONODE_HTTP_TIMEOUT", "30"),
         "GEONODE_MAX_CONCURRENT_UPLOADS": os.getenv("GEONODE_MAX_CONCURRENT_UPLOADS"),
         "GEONODE_LOG_FILE": os.getenv("GEONODE_LOG_FILE"),
     }
@@ -372,6 +437,7 @@ def get_configuration_status() -> Dict[str, Any]:
                 "has_username": config.username is not None,
                 "has_token": config.token is not None,
                 "verify_ssl": config.verify_ssl,
+                "http_timeout": config.http_timeout,
             }
         )
     else:
@@ -939,6 +1005,54 @@ async def delete_resource(resource_id: int) -> Dict[str, Any]:
     try:
         await client.request("DELETE", f"resources/{resource_id}")
         return {"message": f"Resource {resource_id} deleted successfully"}
+    except TimeoutError:
+        # The DELETE itself timed out client-side, so we don't actually know
+        # whether GeoNode processed it. Rather than reporting a bare failure
+        # (which invites an unnecessary and potentially confusing retry),
+        # check the resource's real state before answering.
+        logger.warning(
+            "Delete request for resource %s timed out; verifying actual state "
+            "with a follow-up GET before reporting an outcome",
+            resource_id,
+        )
+        try:
+            await client.request("GET", f"resources/{resource_id}")
+        except httpx.HTTPStatusError as verify_err:
+            if verify_err.response.status_code == 404:
+                return {
+                    "message": f"Resource {resource_id} deleted successfully",
+                    "note": (
+                        "The initial delete request timed out waiting for a "
+                        "response, but a follow-up check confirmed the resource "
+                        "no longer exists."
+                    ),
+                }
+            return {
+                "error": (
+                    f"Delete request for resource {resource_id} timed out, and "
+                    "the follow-up verification check itself failed "
+                    f"(HTTP {verify_err.response.status_code}). Resource status "
+                    "is unknown; please check manually before retrying."
+                )
+            }
+        except Exception:
+            return {
+                "error": (
+                    f"Delete request for resource {resource_id} timed out, and "
+                    "the follow-up verification check also failed. Resource "
+                    "status is unknown; please check manually before retrying."
+                )
+            }
+        else:
+            # GET succeeded, meaning the resource still exists: the delete
+            # genuinely did not take effect.
+            return {
+                "error": (
+                    f"Delete request for resource {resource_id} timed out, and "
+                    "the resource still exists on GeoNode. The delete did not "
+                    "take effect; it is safe to retry."
+                )
+            }
     except Exception as e:
         return {"error": f"Failed to delete resource: {e}"}
 
