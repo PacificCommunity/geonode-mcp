@@ -10,8 +10,10 @@ import asyncio
 import base64
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import unquote
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -146,6 +148,112 @@ def _load_http_timeout() -> float:
         return 30.0
 
     return parsed_value
+
+
+def _load_asset_download_dir() -> Optional[str]:
+    """Load the default directory for downloaded dataset assets from environment.
+
+    Returns None when unset, in which case callers fall back to the current
+    working directory.
+    """
+    raw_value = os.getenv("GEONODE_ASSET_DOWNLOAD_DIR")
+    if raw_value is None or not raw_value.strip():
+        return None
+    return os.path.expanduser(raw_value.strip())
+
+
+_ASSET_URL_PATTERN = re.compile(r"/assets/(\d+)(?:/|$)")
+_CONTENT_DISPOSITION_FILENAME_PATTERN = re.compile(
+    r'filename\*?=(?:"([^"]*)"|([^;]+))', flags=re.IGNORECASE
+)
+
+
+def _safe_filename(name: Optional[str], fallback: str) -> str:
+    """Reduce an untrusted name to a safe basename.
+
+    Strips any directory components (defeating traversal such as ``../../x``)
+    and characters that are awkward or unsafe in filenames, then falls back to
+    ``fallback`` when nothing usable remains.
+    """
+    if not name:
+        return fallback
+    base = os.path.basename(str(name).replace("\\", "/"))
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base)
+    base = base.strip().strip(".")
+    return base or fallback
+
+
+def _filename_from_content_disposition(value: Optional[str]) -> Optional[str]:
+    """Extract the filename from a Content-Disposition header value, if any."""
+    if not value:
+        return None
+    match = _CONTENT_DISPOSITION_FILENAME_PATTERN.search(value)
+    if not match:
+        return None
+    if match.group(1) is not None:
+        filename = match.group(1)
+    else:
+        filename = match.group(2)
+        # RFC 5987 extended form: filename*=UTF-8''percent-encoded
+        if "''" in filename:
+            filename = filename.split("''", 1)[1]
+    return unquote(filename.strip()) or None
+
+
+def _unwrap_resource(payload: Any) -> Dict[str, Any]:
+    """Return the resource object from a resource-detail payload.
+
+    Some GeoNode deployments return the resource fields at the top level,
+    others nest them under a ``resource`` key.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    nested = payload.get("resource")
+    if isinstance(nested, dict):
+        return nested
+    return payload
+
+
+def _asset_descriptors_from_links(links: Any) -> List[Dict[str, Any]]:
+    """Extract asset descriptors from a resource's ``links`` payload.
+
+    Assets are attached to a resource through Link entries flagged with
+    ``extras.type == "asset"``. The asset primary key is not serialized
+    directly, but both the link URL and the download URL embed it as
+    ``/assets/{pk}/...``.
+    """
+    descriptors: List[Dict[str, Any]] = []
+    if not isinstance(links, list):
+        return descriptors
+
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        extras = link.get("extras") or {}
+        if extras.get("type") != "asset":
+            continue
+
+        content = extras.get("content") or {}
+        asset_id = None
+        for candidate in (link.get("url"), content.get("download_url")):
+            if not candidate:
+                continue
+            match = _ASSET_URL_PATTERN.search(str(candidate))
+            if match:
+                asset_id = int(match.group(1))
+                break
+
+        descriptors.append(
+            {
+                "asset_id": asset_id,
+                "name": link.get("name"),
+                "title": content.get("title"),
+                "type": content.get("type"),
+                "extension": link.get("extension"),
+                "mime": link.get("mime"),
+            }
+        )
+    return descriptors
 
 
 class GeoNodeConfig(BaseModel):
@@ -339,12 +447,75 @@ class GeoNodeClient:
             )
             raise RuntimeError(detail) from e
 
+    async def download_to_file(
+        self, url: str, dest_dir: Path, fallback_name: str
+    ) -> Dict[str, Any]:
+        """Stream a response body to a file inside ``dest_dir``.
+
+        Unlike :meth:`request`, the body is written to disk as raw bytes
+        (assets are served as ZIP archives) rather than decoded as JSON/text.
+        The output filename is taken from the response's ``Content-Disposition``
+        header when present, sanitized to a safe basename, and otherwise falls
+        back to ``fallback_name``. Existing files are overwritten.
+        """
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        headers = {k: v for k, v in self.headers.items() if k != "Content-Type"}
+        headers["Accept"] = "*/*"
+
+        logger.debug("GeoNode download: %s -> %s", url, dest_dir)
+        try:
+            async with self._http_client.stream(
+                "GET", url, headers=headers
+            ) as response:
+                response.raise_for_status()
+                content_disposition = response.headers.get("content-disposition", "")
+                filename = _safe_filename(
+                    _filename_from_content_disposition(content_disposition),
+                    fallback_name,
+                )
+                dest = dest_dir / filename
+                total = 0
+                with dest.open("wb") as handle:
+                    async for chunk in response.aiter_bytes():
+                        handle.write(chunk)
+                        total += len(chunk)
+
+            return {
+                "file_path": str(dest),
+                "filename": filename,
+                "size_bytes": total,
+                "content_type": response.headers.get("content-type", ""),
+                "content_disposition": content_disposition,
+            }
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "HTTP error %s downloading %s: %s",
+                e.response.status_code,
+                url,
+                e.response.text,
+            )
+            raise
+        except httpx.TimeoutException as e:
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            msg = (
+                f"No response from GeoNode within {self.config.http_timeout}s "
+                f"while downloading {url} ({detail})."
+            )
+            logger.error(msg)
+            raise TimeoutError(msg) from e
+        except Exception as e:
+            detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.error("Download failed for %s: %s", url, detail)
+            raise RuntimeError(detail) from e
+
 
 # Create the MCP server
 mcp = FastMCP("GeoNode MCP Server")
 
 # Global client instance (will be set based on configuration)
 geonode_client: Optional[GeoNodeClient] = None
+# How the active client was configured: "environment" or "manual".
+_configuration_source: Optional[str] = None
 MAX_CONCURRENT_UPLOADS = _load_max_concurrent_uploads()
 upload_semaphore = asyncio.Semaphore(MAX_CONCURRENT_UPLOADS)
 
@@ -352,12 +523,13 @@ upload_semaphore = asyncio.Semaphore(MAX_CONCURRENT_UPLOADS)
 # Try to auto-configure from environment on startup
 def _auto_configure_from_env():
     """Automatically configure GeoNode client from environment variables if available."""
-    global geonode_client
+    global geonode_client, _configuration_source
 
     if geonode_client is None:
         env_config = GeoNodeConfig.from_env()
         if env_config:
             geonode_client = GeoNodeClient(env_config)
+            _configuration_source = "environment"
             logger.info(
                 f"Auto-configured GeoNode client from environment for {env_config.base_url}"
             )
@@ -393,6 +565,65 @@ def get_client() -> GeoNodeClient:
 
 
 @mcp.tool()
+async def configure_geonode(
+    base_url: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    token: Optional[str] = None,
+    verify_ssl: bool = True,
+) -> Dict[str, Any]:
+    """
+    Configure the connection to a GeoNode instance.
+
+    This overrides any configuration loaded from the environment.
+
+    Args:
+        base_url: GeoNode instance URL
+        username: Username for basic authentication (optional)
+        password: Password for basic authentication (optional)
+        token: API token for bearer authentication (optional)
+        verify_ssl: Verify SSL certificates (default: True)
+
+    Returns:
+        Dictionary describing the applied configuration
+    """
+    global geonode_client, _configuration_source
+
+    try:
+        config = GeoNodeConfig(
+            base_url=base_url,
+            username=username,
+            password=password,
+            token=token,
+            verify_ssl=verify_ssl,
+            http_timeout=_load_http_timeout(),
+        )
+    except Exception as e:
+        return {"error": f"Invalid GeoNode configuration: {e}"}
+
+    previous = geonode_client
+    geonode_client = GeoNodeClient(config)
+    _configuration_source = "manual"
+
+    if previous is not None and previous is not geonode_client:
+        try:
+            await previous.aclose()
+        except Exception:
+            logger.warning("Failed to close previous GeoNode client", exc_info=True)
+
+    logger.info("GeoNode client configured manually for %s", config.base_url)
+    return {
+        "configured": True,
+        "configuration_source": "manual",
+        "base_url": str(config.base_url),
+        "has_username": username is not None,
+        "has_token": token is not None,
+        "verify_ssl": verify_ssl,
+        "message": f"Successfully configured GeoNode client for {config.base_url}",
+    }
+
+
+@mcp.tool()
 def get_configuration_status() -> Dict[str, Any]:
     """
     Get current GeoNode configuration status.
@@ -404,7 +635,7 @@ def get_configuration_status() -> Dict[str, Any]:
 
     status = {
         "configured": geonode_client is not None,
-        "configuration_source": "environment",
+        "configuration_source": _configuration_source,
         "base_url": None,
         "has_username": False,
         "has_token": False,
@@ -761,15 +992,16 @@ async def download_resource(
 
     try:
         if resource_type == "dataset":
-            # For datasets, first get the resource details to find the alternate name
-            resource = await client.request("GET", f"resources/{resource_id}")
-            alternate = resource.get("alternate")
-            if alternate:
-                download_url = (
-                    f"{client.base_url}/datasets/{alternate}/dataset_download"
-                )
+            # Use the download_urls exposed on the resource detail; constructing
+            # a /datasets/{alternate}/dataset_download URL 404s for datasets that
+            # have no uploaded files (e.g. GeoServer-backed layers).
+            payload = await client.request("GET", f"resources/{resource_id}")
+            resource = _unwrap_resource(payload)
+            urls = resource.get("download_urls") or []
+            if urls:
+                download_url = urls[0]["url"]
             else:
-                return {"error": "Could not find dataset alternate name for download"}
+                return {"error": "No download URL found for this dataset"}
         elif resource_type == "document":
             download_url = f"{client.base_url}/documents/{resource_id}/download"
         else:
@@ -783,6 +1015,106 @@ async def download_resource(
         }
     except Exception as e:
         return {"error": f"Failed to get download information: {e}"}
+
+
+@mcp.tool()
+async def download_asset(
+    resource_id: int,
+    asset_id: Optional[int] = None,
+    dest_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Download the assets attached to a dataset (resource) to local files.
+
+    Assets are the files attached to a resource: the original uploaded files
+    plus any supplementary files. GeoNode serves each asset as a ZIP archive,
+    which is saved as-is. If asset_id is omitted, every asset of the resource
+    is downloaded.
+
+    Args:
+        resource_id: ID of the resource (dataset) whose assets to download
+        asset_id: Optional ID of a single asset to download
+        dest_dir: Directory to write files into. Defaults to the
+            GEONODE_ASSET_DOWNLOAD_DIR environment variable, then the current
+            working directory. Created if it does not exist.
+
+    Returns:
+        Dictionary listing the resource's assets and the files written
+    """
+    client = get_client()
+
+    resolved_dir = dest_dir or _load_asset_download_dir() or os.getcwd()
+    dest_path = Path(resolved_dir).expanduser()
+    try:
+        dest_path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        return {"error": f"Invalid destination directory '{resolved_dir}': {e}"}
+
+    try:
+        payload = await client.request("GET", f"resources/{resource_id}")
+    except Exception as e:
+        return {"error": f"Failed to load resource {resource_id}: {e}"}
+
+    assets = _asset_descriptors_from_links(_unwrap_resource(payload).get("links"))
+    if not assets:
+        return {
+            "resource_id": resource_id,
+            "dest_dir": str(dest_path),
+            "assets": [],
+            "downloaded": [],
+            "errors": [],
+            "message": f"Resource {resource_id} has no assets to download.",
+        }
+
+    if asset_id is not None:
+        selected = [asset for asset in assets if asset["asset_id"] == asset_id]
+        if not selected:
+            return {
+                "error": (
+                    f"Asset {asset_id} is not attached to resource {resource_id}."
+                ),
+                "assets": assets,
+            }
+    else:
+        selected = assets
+
+    downloaded: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    for asset in selected:
+        current_id = asset["asset_id"]
+        if current_id is None:
+            errors.append(
+                {
+                    "asset": asset,
+                    "error": "Could not determine asset id from resource links.",
+                }
+            )
+            continue
+
+        url = f"{client.base_url}/api/v2/assets/{current_id}/download"
+        try:
+            result = await client.download_to_file(
+                url, dest_path, f"asset_{current_id}.zip"
+            )
+            downloaded.append(
+                {
+                    "asset_id": current_id,
+                    "name": asset.get("name") or asset.get("title"),
+                    "file_path": result["file_path"],
+                    "size_bytes": result["size_bytes"],
+                }
+            )
+        except Exception as e:
+            errors.append({"asset_id": current_id, "error": str(e)})
+
+    return {
+        "resource_id": resource_id,
+        "dest_dir": str(dest_path),
+        "assets": assets,
+        "downloaded": downloaded,
+        "errors": errors,
+    }
 
 
 @mcp.tool()

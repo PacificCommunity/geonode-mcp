@@ -7,8 +7,6 @@ Run this after starting the MCP server.
 """
 
 import asyncio
-import json
-from typing import Dict, Any
 
 
 # Example functions that would be called through MCP protocol

@@ -55,4 +55,4 @@ uv run python cli.py
 
 ## Known current baseline (important for future sessions)
 
-- `uv run pytest -q` currently errors during collection because `test_server.py` imports `configure_geonode` from `mcp_geonode.server`, but that symbol is not present in the current server module.
+- `uv run pytest -q` passes. `test_server.py` is an offline pytest module (no GeoNode network calls); `configure_geonode`, `download_resource`, and `download_asset` are all present in `mcp_geonode/server.py`.
