@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the parent directory to Python path to import mcp_geonode
 sys.path.insert(0, str(Path(__file__).parent))
 
-from mcp_geonode.server import GeoNodeConfig, GeoNodeClient, _auto_configure_from_env, geonode_client
+from mcp_geonode.server import GeoNodeConfig, _auto_configure_from_env, geonode_client
 
 
 def test_env_configuration():

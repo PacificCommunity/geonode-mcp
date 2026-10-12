@@ -333,6 +333,33 @@ Get download URLs for resources.
 download_resource(resource_id=123, resource_type="dataset")
 ```
 
+#### `download_asset`
+Download the files attached to a dataset (resource) as assets.
+
+Assets are the files attached to a resource: the original uploaded files plus
+any supplementary files. GeoNode serves each asset as a ZIP archive, which is
+saved as-is. If `asset_id` is omitted, every asset of the resource is downloaded.
+
+**Parameters:**
+- `resource_id` (required): ID of the resource (dataset) whose assets to download
+- `asset_id` (optional): ID of a single asset to download
+- `dest_dir` (optional): Directory to write files into. Defaults to the
+  `GEONODE_ASSET_DOWNLOAD_DIR` environment variable, then the current working
+  directory. Created if it does not exist.
+
+**Example:**
+```python
+# Download every asset of resource 123 into ./downloads
+download_asset(resource_id=123, dest_dir="downloads")
+
+# Download just one asset
+download_asset(resource_id=123, asset_id=45)
+```
+
+The result lists the resource's assets under `assets` and each file written
+under `downloaded` (`asset_id`, `name`, `file_path`, `size_bytes`). Per-asset
+failures are reported under `errors` without aborting the others.
+
 #### `delete_resource`
 Delete a resource from GeoNode.
 

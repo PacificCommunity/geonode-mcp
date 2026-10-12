@@ -281,6 +281,7 @@ update_dataset_settings(
 - `get_resource_details`: Get basic resource information
 - `get_dataset_details`: Get detailed dataset information
 - `download_resource`: Get download URLs
+- `download_asset`: Download a dataset's attached assets to local files as ZIPs
 - `delete_resource`: Remove resources
 - `update_dataset_metadata`: Update dataset metadata fields via metadata instance endpoint
 - `update_dataset_settings`: Update dataset-level fields via dataset endpoint
@@ -315,6 +316,7 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
+- `/api/v2/assets/{id}/download` - Dataset asset downloads
 - `/api/v2/metadata/instance/{id}` - Dataset metadata updates via PATCH
 - `/api/v2/metadata/autocomplete/thesaurus/{name}/keywords` - Keyword ID lookup for metadata updates
 - `/api/v2/uploads/upload` - Dataset uploads

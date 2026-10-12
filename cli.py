@@ -13,6 +13,7 @@ import mcp_geonode.server as server
 
 
 TOOL_NAMES = (
+    "configure_geonode",
     "get_configuration_status",
     "list_resources",
     "list_groups",
@@ -21,6 +22,7 @@ TOOL_NAMES = (
     "get_resource_details",
     "get_dataset_details",
     "download_resource",
+    "download_asset",
     "upload_dataset",
     "upload_document",
     "delete_resource",

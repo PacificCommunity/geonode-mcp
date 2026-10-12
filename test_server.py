@@ -1,95 +1,83 @@
 #!/usr/bin/env python3
 """
-Test script for MCP GeoNode Server
+Tests for the MCP GeoNode Server.
 
-This script demonstrates how to use the MCP server for common GeoNode operations.
+These tests exercise configuration wiring and tool registration without making
+any network calls to a GeoNode instance.
 """
 
 import asyncio
-import json
-from mcp_geonode.server import mcp, configure_geonode
+
+from mcp_geonode import server
+from mcp_geonode.server import mcp
 
 
-async def test_configuration():
-    """Test GeoNode configuration."""
-    print("Testing GeoNode configuration...")
-    
-    # Configure with public demo instance
-    result = configure_geonode("https://master.demo.geonode.org")
-    print(f"Configuration result: {result}")
-    
-    return "Successfully configured" in result
+def _run(coro):
+    return asyncio.run(coro)
 
 
-async def test_list_resources():
-    """Test listing resources."""
-    print("\nTesting resource listing...")
-    
+def test_configure_geonode_updates_status():
+    previous_client = server.geonode_client
     try:
-        # Get list_resources tool function directly from the server
-        tools = await mcp.list_tools()
-        list_resources_tool = None
-        
-        for tool in tools:
-            if tool.name == "list_resources":
-                list_resources_tool = tool
-                break
-        
-        if list_resources_tool:
-            print("Found list_resources tool")
-            # Note: In a real test, you would call the tool through the MCP protocol
-            print("Tool description:", list_resources_tool.description)
-            return True
-        else:
-            print("list_resources tool not found")
-            return False
-            
-    except Exception as e:
-        print(f"Error testing resource listing: {e}")
-        return False
+        result = _run(server.configure_geonode("https://example.org"))
+
+        assert result["configured"] is True
+        assert result["configuration_source"] == "manual"
+        assert result["base_url"].startswith("https://example.org")
+
+        status = server.get_configuration_status()
+        assert status["configured"] is True
+        assert status["configuration_source"] == "manual"
+        assert status["base_url"].startswith("https://example.org")
+    finally:
+        new_client = server.geonode_client
+        if new_client is not None and new_client is not previous_client:
+            _run(new_client.aclose())
+        # configure_geonode() closed the previous client, so rebuild the
+        # process-wide client from the environment to leave a clean state.
+        server.geonode_client = None
+        server._configuration_source = None
+        server._auto_configure_from_env()
 
 
-async def main():
-    """Run all tests."""
-    print("MCP GeoNode Server Test Suite")
-    print("=" * 40)
-    
-    tests = [
-        ("Configuration", test_configuration),
-        ("List Resources", test_list_resources),
-    ]
-    
-    results = []
-    
-    for test_name, test_func in tests:
-        try:
-            result = await test_func()
-            results.append((test_name, result))
-            status = "PASS" if result else "FAIL"
-            print(f"{test_name}: {status}")
-        except Exception as e:
-            results.append((test_name, False))
-            print(f"{test_name}: FAIL - {e}")
-    
-    print("\n" + "=" * 40)
-    print("Test Summary:")
-    
-    passed = sum(1 for _, result in results if result)
-    total = len(results)
-    
-    for test_name, result in results:
-        status = "✓" if result else "✗"
-        print(f"  {status} {test_name}")
-    
-    print(f"\nPassed: {passed}/{total}")
-    
-    if passed == total:
-        print("All tests passed! 🎉")
-        return 0
-    else:
-        print("Some tests failed. 😞")
-        return 1
+def test_configure_geonode_rejects_invalid_url():
+    result = _run(server.configure_geonode("not-a-url"))
+    assert "error" in result
 
 
-if __name__ == "__main__":
-    exit_code = asyncio.run(main())
+def test_registered_tools_include_expected():
+    tools = _run(mcp.list_tools())
+    names = {tool.name for tool in tools}
+    for expected in (
+        "configure_geonode",
+        "get_configuration_status",
+        "list_resources",
+        "download_resource",
+        "download_asset",
+    ):
+        assert expected in names
+
+
+class _FakeClient:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def request(self, method, endpoint, **kwargs):
+        return self._payload
+
+
+def test_download_resource_uses_download_urls(monkeypatch):
+    payload = {
+        "resource": {"download_urls": [{"url": "https://x/api/v2/assets/9/download"}]}
+    }
+    monkeypatch.setattr(server, "get_client", lambda: _FakeClient(payload))
+
+    result = _run(server.download_resource(2071))
+    assert result["download_url"] == "https://x/api/v2/assets/9/download"
+
+
+def test_download_resource_without_urls(monkeypatch):
+    monkeypatch.setattr(server, "get_client", lambda: _FakeClient({"resource": {}}))
+
+    result = _run(server.download_resource(2071))
+    assert "error" in result
