@@ -1,6 +1,6 @@
 """MCP Server for GeoNode API."""
 
+from ._version import __version__
 from .server import main
 
-__version__ = "0.1.0"
-__all__ = ["main"]
+__all__ = ["main", "__version__"]

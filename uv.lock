@@ -336,7 +336,6 @@ wheels = [
 
 [[package]]
 name = "mcp-geonode"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -370,7 +369,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "typing-extensions", specifier = ">=4.5.0" },
 ]
-provides-extras = ["env", "dev"]
+provides-extras = ["dev", "env"]
 
 [[package]]
 name = "mcp-types"

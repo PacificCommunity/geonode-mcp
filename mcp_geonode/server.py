@@ -19,6 +19,8 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, HttpUrl
 
+from ._version import __version__
+
 # Try to import python-dotenv for .env file support
 try:
     from dotenv import load_dotenv
@@ -510,7 +512,7 @@ class GeoNodeClient:
 
 
 # Create the MCP server
-mcp = MCPServer("GeoNode MCP Server", version="0.1.0")
+mcp = MCPServer("GeoNode MCP Server", version=__version__)
 
 # Global client instance (will be set based on configuration)
 geonode_client: Optional[GeoNodeClient] = None

@@ -10,6 +10,7 @@ import sys
 from typing import Any, Callable, Dict
 
 from . import server
+from ._version import __version__
 
 
 TOOL_NAMES = (
@@ -49,7 +50,7 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version="MCP GeoNode Server 0.1.0"
+        "--version", action="version", version=f"MCP GeoNode Server {__version__}"
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
