@@ -31,21 +31,42 @@ A Model Context Protocol (MCP) server for interacting with GeoNode APIs. This se
 
 ## Installation
 
-1. Install dependencies:
+Requires Python 3.13+ and MCP Python SDK 2.x.
+
+### Install from Git
+
+Install straight from the repository — no clone needed:
+
 ```bash
-pip install mcp httpx pydantic
+pip install "git+https://github.com/PacificCommunity/geonode-mcp.git"
 ```
 
-2. Run the server:
+Or run it without installing, using uv:
+
 ```bash
-python main.py
+uvx --from "git+https://github.com/PacificCommunity/geonode-mcp.git" mcp-geonode
+```
+
+### Install from a clone
+
+```bash
+git clone https://github.com/PacificCommunity/geonode-mcp.git
+cd geonode-mcp
+pip install .            # add the [env] extra to read a local .env file: pip install ".[env]"
+```
+
+### Run the server
+
+```bash
+mcp-geonode          # MCP server (stdio)
 # or
-python cli.py
+python main.py       # same server, from a clone
 # or
 mcp-geonode-cli serve
 ```
 
-3. Call tools directly from CLI (no MCP client required):
+### Call tools directly from the CLI (no MCP client required)
+
 ```bash
 # List callable tools
 mcp-geonode-cli list-tools
@@ -56,11 +77,14 @@ mcp-geonode-cli call list_resources --args '{"resource_type":"dataset","page_siz
 
 ## Configuration
 
-The MCP GeoNode server is configured exclusively through environment variables or a `.env` file for security and simplicity.
+The MCP GeoNode server is configured exclusively through environment variables for security and simplicity. A `.env` file in the directory you launch the server from is also supported when the optional `python-dotenv` dependency is installed.
 
 ### Environment Variables Configuration
 
+Set the variables in the environment that launches the server — for MCP hosts that means the `env`/`environment` block of the server entry (see [MCP host configuration](#mcp-host-configuration)), otherwise your shell.
+
 Create a `.env` file in the project directory or set environment variables:
+
 
 ```bash
 # Copy the example file
@@ -91,6 +115,53 @@ GEONODE_VERIFY_SSL=true
 ```
 
 The server will automatically load configuration on startup. Use the `get_configuration_status` tool to check the current configuration.
+
+#### Using a `.env` file
+
+`.env` support is optional. It requires `python-dotenv`:
+
+```bash
+pip install ".[env]"              # from a clone
+uvx --with python-dotenv --from . mcp-geonode
+```
+
+Two things to know:
+
+- The file is discovered by walking up from the installed package directory, so it is picked up reliably when you run the server from a clone (`python main.py`, `mcp-geonode` in the repo root).
+- When the package is installed as a wheel and launched by an MCP host, a `.env` sitting in your current directory is **not** found. Export the variables instead, either in the host's `env`/`environment` block or with a wrapper script:
+
+```bash
+#!/usr/bin/env bash
+# ~/.local/bin/geonode-mcp-env
+set -a
+. /path/to/geonode-mcp/.env
+set +a
+exec mcp-geonode
+```
+
+### MCP Host Configuration
+
+Most hosts pass configuration as environment variables. Example for opencode (`opencode.jsonc`):
+
+```jsonc
+{
+  "mcp": {
+    "servers": {
+      "geonode": {
+        "type": "local",
+        "command": ["uvx", "--from", "git+https://github.com/PacificCommunity/geonode-mcp.git", "mcp-geonode"],
+        "environment": {
+          "GEONODE_BASE_URL": "https://geonode.pacificdata.org",
+          "GEONODE_USERNAME": "your_username",
+          "GEONODE_PASSWORD": "{env:GEONODE_PASSWORD}"
+        }
+      }
+    }
+  }
+}
+```
+
+Claude Desktop, Cursor, and VS Code use the same shape with `env` instead of `environment`, and a `command`/`args` pair instead of `command` as a list. Use `{env:...}` (opencode) or your host's own indirection so the secret stays out of version control.
 
 Server logs are written to `./geonode-mcp.log` by default, which is useful when the MCP host hides stderr. Set `GEONODE_LOG_FILE` to change the path.
 

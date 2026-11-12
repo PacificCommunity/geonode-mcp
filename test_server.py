@@ -45,6 +45,21 @@ def test_configure_geonode_rejects_invalid_url():
     assert "error" in result
 
 
+def test_version_comes_from_single_source():
+    """The package version must match the server's reported version."""
+    from mcp_geonode._version import __version__ as source_version
+
+    assert server.__version__ == source_version
+    assert mcp.version == source_version
+
+
+def test_cli_entry_point_is_importable():
+    """The mcp-geonode-cli console script must resolve to a packaged module."""
+    from mcp_geonode.cli import main_cli
+
+    assert callable(main_cli)
+
+
 def test_registered_tools_include_expected():
     tools = _run(mcp.list_tools())
     names = {tool.name for tool in tools}

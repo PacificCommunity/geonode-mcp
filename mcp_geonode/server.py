@@ -16,8 +16,10 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, HttpUrl
+
+from ._version import __version__
 
 # Try to import python-dotenv for .env file support
 try:
@@ -510,7 +512,7 @@ class GeoNodeClient:
 
 
 # Create the MCP server
-mcp = FastMCP("GeoNode MCP Server")
+mcp = MCPServer("GeoNode MCP Server", version=__version__)
 
 # Global client instance (will be set based on configuration)
 geonode_client: Optional[GeoNodeClient] = None
