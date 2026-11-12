@@ -45,6 +45,13 @@ def test_configure_geonode_rejects_invalid_url():
     assert "error" in result
 
 
+def test_cli_entry_point_is_importable():
+    """The mcp-geonode-cli console script must resolve to a packaged module."""
+    from mcp_geonode.cli import main_cli
+
+    assert callable(main_cli)
+
+
 def test_registered_tools_include_expected():
     tools = _run(mcp.list_tools())
     names = {tool.name for tool in tools}

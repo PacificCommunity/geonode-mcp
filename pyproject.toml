@@ -5,7 +5,7 @@ description = "Model Context Protocol server for GeoNode API"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=2.3,<3",
     "httpx>=0.25.0",
     "pydantic>=2.0.0",
     "typing-extensions>=4.5.0"
@@ -17,7 +17,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 mcp-geonode = "mcp_geonode:main"
-mcp-geonode-cli = "cli:main_cli"
+mcp-geonode-cli = "mcp_geonode.cli:main_cli"
 
 [project.optional-dependencies]
 env = [
