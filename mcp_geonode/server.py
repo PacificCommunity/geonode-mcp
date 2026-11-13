@@ -1849,10 +1849,15 @@ async def set_resource_permissions(
 
     This replaces the entire permission spec. Omitted ``users``, ``groups``, or
     ``organizations`` are sent as empty lists, which removes those permissions.
+    Calling with no buckets at all is rejected; pass at least one bucket, using
+    ``[]`` to clear it.
 
-    GeoNode applies the change asynchronously: the response is an execution
-    handle carrying ``status``, ``execution_id``, and ``status_url``, not a
-    completed result. Use ``check_execution_status(execution_id)`` to poll it.
+    Recent GeoNode deployments apply the change asynchronously: the response is
+    an execution handle carrying ``status``, ``execution_id``, and
+    ``status_url``, not a completed result. Use
+    ``check_execution_status(execution_id)`` to poll it. Older/synchronous
+    deployments return a plain acknowledgement without ``execution_id``; in
+    that case the change is already applied.
 
     Args:
         resource_id: ID of the resource
@@ -1861,7 +1866,7 @@ async def set_resource_permissions(
         organizations: List of organization permissions
 
     Returns:
-        Dictionary containing the asynchronous execution handle
+        Dictionary containing the execution handle or acknowledgement
     """
     client = get_client()
 

@@ -628,8 +628,10 @@ This call replaces the entire permission spec. Any bucket you omit is sent as
 `[]`, which removes those permissions. Pass every bucket you want to keep,
 including explicit empty lists for the ones you want cleared.
 
-The PUT is asynchronous. It returns an execution handle rather than a completed
-result, so re-reading permissions immediately may show the old values.
+The PUT is asynchronous on recent deployments. It returns an execution handle
+rather than a completed result, so re-reading permissions immediately may show
+the old values. Older synchronous deployments return a plain acknowledgement
+without an `execution_id`; in that case the change is already applied.
 
 **Parameters:**
 - `resource_id` (required): ID of the resource
@@ -686,13 +688,14 @@ result = set_resource_permissions(
     groups=[{"id": 2, "permissions": "view"}],
     organizations=[],
 )
-execution_id = result["execution_id"]
-for _ in range(30):
-    status = check_execution_status(execution_id)
-    if status.get("status") in ("finished", "failed"):
-        break
-    time.sleep(1)
-assert status.get("status") == "finished", status
+execution_id = result.get("execution_id")
+if execution_id:
+    for _ in range(30):
+        status = check_execution_status(execution_id)
+        if status.get("status") in ("finished", "failed"):
+            break
+        time.sleep(1)
+    assert status.get("status") == "finished", status
 ```
 
 #### `check_execution_status`
@@ -762,18 +765,20 @@ if status.get("status") == "finished":
 
 # 5. Set permissions (this replaces the full spec)
 permission_result = set_resource_permissions(
-    resource_id=dataset_id,
+    resource_id=int(dataset_id.split("/")[-1]),
     users=[],
     groups=[{"id": 1, "permissions": "view"}],  # Public view access
     organizations=[]
 )
 
 # 6. Wait for the asynchronous permission update
-for _ in range(30):
-    permission_status = check_execution_status(permission_result["execution_id"])
-    if permission_status.get("status") in ("finished", "failed"):
-        break
-    time.sleep(1)
+permission_execution_id = permission_result.get("execution_id")
+if permission_execution_id:
+    for _ in range(30):
+        permission_status = check_execution_status(permission_execution_id)
+        if permission_status.get("status") in ("finished", "failed"):
+            break
+        time.sleep(1)
 ```
 
 ### User Administration Workflow

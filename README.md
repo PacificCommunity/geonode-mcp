@@ -291,6 +291,8 @@ set_resource_permissions(
 GeoNode's asynchronous execution handle (`status`, `execution_id`,
 `status_url`). Omitted buckets are sent as `[]`, which removes them. Use
 `check_execution_status(execution_id)` to wait for `finished` or see a failure.
+Older synchronous deployments return a plain acknowledgement without an
+`execution_id`; in that case the change is already applied.
 
 ### User Management
 ```python
