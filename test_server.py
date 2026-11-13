@@ -8,6 +8,8 @@ any network calls to a GeoNode instance.
 
 import asyncio
 
+import httpx
+
 from mcp_geonode import server
 from mcp_geonode.server import mcp
 
@@ -96,3 +98,95 @@ def test_download_resource_without_urls(monkeypatch):
 
     result = _run(server.download_resource(2071))
     assert "error" in result
+
+
+class _ScriptedClient:
+    """Returns or raises each scripted response in order, recording calls."""
+
+    def __init__(self, *responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    async def request(self, method, endpoint, **kwargs):
+        self.calls.append((method, endpoint, kwargs))
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def _http_error(status_code=400, text=""):
+    request = httpx.Request("PUT", "https://x/api/v2/resources/7/permissions")
+    response = httpx.Response(status_code, text=text, request=request)
+    return httpx.HTTPStatusError("boom", request=request, response=response)
+
+
+def test_set_resource_permissions_sends_all_buckets(monkeypatch):
+    fake = _ScriptedClient(
+        {"status": "ready", "execution_id": "exec-1", "status_url": "https://x/status"}
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(
+        server.set_resource_permissions(
+            7, users=[{"id": 1, "permissions": "view"}]
+        )
+    )
+
+    assert result["execution_id"] == "exec-1"
+    method, endpoint, kwargs = fake.calls[0]
+    assert (method, endpoint) == ("PUT", "resources/7/permissions")
+    assert kwargs["data"] == {
+        "users": [{"id": 1, "permissions": "view"}],
+        "groups": [],
+        "organizations": [],
+    }
+
+
+def test_set_resource_permissions_returns_synchronous_response_unchanged(monkeypatch):
+    payload = {"message": "Permissions updated"}
+    fake = _ScriptedClient(payload)
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_resource_permissions(7, groups=[{"id": 2, "permissions": "view"}]))
+
+    assert result == payload
+
+
+def test_set_resource_permissions_retries_once_on_empty_400(monkeypatch):
+    fake = _ScriptedClient(
+        _http_error(400, ""),
+        {"status": "ready", "execution_id": "exec-2"},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+    monkeypatch.setattr(server, "PERMISSION_RETRY_DELAY_SECONDS", 0)
+
+    result = _run(server.set_resource_permissions(7, users=[{"id": 1, "permissions": "view"}]))
+
+    assert result["execution_id"] == "exec-2"
+    assert len(fake.calls) == 2
+
+
+def test_set_resource_permissions_reports_second_empty_400(monkeypatch):
+    fake = _ScriptedClient(_http_error(400, ""), _http_error(400, ""))
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+    monkeypatch.setattr(server, "PERMISSION_RETRY_DELAY_SECONDS", 0)
+
+    result = _run(server.set_resource_permissions(7, users=[{"id": 1, "permissions": "view"}]))
+
+    assert len(fake.calls) == 2
+    assert "after one retry" in result["error"]
+    assert "<empty body>" in result["error"]
+    assert "may still be running" in result["error"]
+
+
+def test_set_resource_permissions_does_not_retry_when_400_has_body(monkeypatch):
+    fake = _ScriptedClient(_http_error(400, '{"detail": "invalid permission id"}'))
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+    monkeypatch.setattr(server, "PERMISSION_RETRY_DELAY_SECONDS", 0)
+
+    result = _run(server.set_resource_permissions(7, users=[{"id": 1, "permissions": "view"}]))
+
+    assert len(fake.calls) == 1
+    assert "invalid permission id" in result["error"]
+    assert "HTTP 400" in result["error"]
