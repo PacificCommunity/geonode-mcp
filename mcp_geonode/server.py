@@ -168,6 +168,7 @@ _ASSET_URL_PATTERN = re.compile(r"/assets/(\d+)(?:/|$)")
 _CONTENT_DISPOSITION_FILENAME_PATTERN = re.compile(
     r'filename\*?=(?:"([^"]*)"|([^;]+))', flags=re.IGNORECASE
 )
+PERMISSION_RETRY_DELAY_SECONDS = 1.0
 
 
 def _safe_filename(name: Optional[str], fallback: str) -> str:
@@ -1846,6 +1847,18 @@ async def set_resource_permissions(
     """
     Set permissions on a resource.
 
+    This replaces the entire permission spec. Omitted ``users``, ``groups``, or
+    ``organizations`` are sent as empty lists, which removes those permissions.
+    Calling with no buckets at all is rejected; pass at least one bucket, using
+    ``[]`` to clear it.
+
+    Recent GeoNode deployments apply the change asynchronously: the response is
+    an execution handle carrying ``status``, ``execution_id``, and
+    ``status_url``, not a completed result. Use
+    ``check_execution_status(execution_id)`` to poll it. Older/synchronous
+    deployments return a plain acknowledgement without ``execution_id``; in
+    that case the change is already applied.
+
     Args:
         resource_id: ID of the resource
         users: List of user permissions (e.g., [{"id": 1, "permissions": "edit"}])
@@ -1853,28 +1866,92 @@ async def set_resource_permissions(
         organizations: List of organization permissions
 
     Returns:
-        Dictionary containing permission update status
+        Dictionary containing the execution handle or acknowledgement
     """
     client = get_client()
 
-    perm_spec = {}
-    if users:
-        perm_spec["users"] = users
-    if groups:
-        perm_spec["groups"] = groups
-    if organizations:
-        perm_spec["organizations"] = organizations
-
-    if not perm_spec:
+    if users is None and groups is None and organizations is None:
         return {"error": "No permissions provided"}
+
+    perm_spec = {
+        "users": users or [],
+        "groups": groups or [],
+        "organizations": organizations or [],
+    }
+
+    async def _send():
+        return await client.request(
+            "PUT", f"resources/{resource_id}/permissions", data=perm_spec
+        )
+
+    try:
+        return await _send()
+    except httpx.HTTPStatusError as e:
+        body = e.response.text or "<empty body>"
+        if e.response.status_code == 400 and not e.response.text.strip():
+            logger.warning(
+                "Resource %s permissions returned 400 with an empty body; "
+                "a previous update may still be running. Retrying once.",
+                resource_id,
+            )
+            await asyncio.sleep(PERMISSION_RETRY_DELAY_SECONDS)
+            try:
+                return await _send()
+            except httpx.HTTPStatusError as retry_error:
+                retry_body = retry_error.response.text or "<empty body>"
+                return {
+                    "error": (
+                        f"HTTP {retry_error.response.status_code} setting "
+                        f"permissions on resource {resource_id} after one "
+                        f"retry: {retry_body}. A previous permission update "
+                        "may still be running; poll check_execution_status "
+                        "before retrying again."
+                    )
+                }
+            except Exception as retry_error:
+                return {
+                    "error": (
+                        f"Failed to set resource permissions after one retry: "
+                        f"{retry_error}"
+                    )
+                }
+        return {
+            "error": (
+                f"HTTP {e.response.status_code} setting permissions on "
+                f"resource {resource_id}: {body}"
+            )
+        }
+    except Exception as e:
+        return {"error": f"Failed to set resource permissions: {e}"}
+
+
+@mcp.tool()
+async def check_execution_status(execution_id: str) -> Dict[str, Any]:
+    """
+    Check the status of an asynchronous GeoNode execution.
+
+    Args:
+        execution_id: Execution ID returned by an asynchronous tool such as
+            set_resource_permissions (the ``execution_id`` field).
+
+    Returns:
+        Dictionary containing the execution status. A failed execution also
+        carries an ``error`` key; running and finished executions do not.
+    """
+    client = get_client()
 
     try:
         result = await client.request(
-            "PUT", f"resources/{resource_id}/permissions", data=perm_spec
+            "GET", f"resource-service/execution-status/{execution_id}"
         )
-        return result
     except Exception as e:
-        return {"error": f"Failed to set resource permissions: {e}"}
+        return {"error": f"Failed to check execution status: {e}"}
+
+    if isinstance(result, dict) and result.get("status") == "failed":
+        detail = result.get("log") or result.get("output_params") or "no details provided"
+        return {**result, "error": f"Execution {execution_id} failed: {detail}"}
+
+    return result
 
 
 @mcp.tool()

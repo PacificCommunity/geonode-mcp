@@ -34,6 +34,7 @@ TOOL_NAMES = (
     "create_user",
     "get_resource_permissions",
     "set_resource_permissions",
+    "check_execution_status",
     "check_upload_status",
     "list_linked_resources",
 )
