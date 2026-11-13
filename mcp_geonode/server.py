@@ -1921,6 +1921,35 @@ async def set_resource_permissions(
 
 
 @mcp.tool()
+async def check_execution_status(execution_id: str) -> Dict[str, Any]:
+    """
+    Check the status of an asynchronous GeoNode execution.
+
+    Args:
+        execution_id: Execution ID returned by an asynchronous tool such as
+            set_resource_permissions (the ``execution_id`` field).
+
+    Returns:
+        Dictionary containing the execution status. A failed execution also
+        carries an ``error`` key; running and finished executions do not.
+    """
+    client = get_client()
+
+    try:
+        result = await client.request(
+            "GET", f"resource-service/execution-status/{execution_id}"
+        )
+    except Exception as e:
+        return {"error": f"Failed to check execution status: {e}"}
+
+    if isinstance(result, dict) and result.get("status") == "failed":
+        detail = result.get("log") or result.get("output_params") or "no details provided"
+        return {**result, "error": f"Execution {execution_id} failed: {detail}"}
+
+    return result
+
+
+@mcp.tool()
 async def check_upload_status(execution_id: str) -> Dict[str, Any]:
     """
     Check the status of an upload operation.

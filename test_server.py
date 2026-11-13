@@ -190,3 +190,33 @@ def test_set_resource_permissions_does_not_retry_when_400_has_body(monkeypatch):
     assert len(fake.calls) == 1
     assert "invalid permission id" in result["error"]
     assert "HTTP 400" in result["error"]
+
+
+def test_check_execution_status_uses_resource_service_endpoint(monkeypatch):
+    fake = _ScriptedClient({"status": "finished", "log": ""})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.check_execution_status("exec-1"))
+
+    assert fake.calls == [
+        ("GET", "resource-service/execution-status/exec-1", {})
+    ]
+    assert result == {"status": "finished", "log": ""}
+    assert "error" not in result
+
+
+def test_check_execution_status_marks_failed_execution(monkeypatch):
+    fake = _ScriptedClient({"status": "failed", "log": "permission id 99 missing"})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.check_execution_status("exec-1"))
+
+    assert result["status"] == "failed"
+    assert result["log"] == "permission id 99 missing"
+    assert "permission id 99 missing" in result["error"]
+
+
+def test_check_execution_status_is_registered_in_cli():
+    from mcp_geonode.cli import TOOL_NAMES
+
+    assert "check_execution_status" in TOOL_NAMES
