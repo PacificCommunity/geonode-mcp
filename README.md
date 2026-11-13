@@ -282,9 +282,15 @@ set_resource_permissions(
     ],
     groups=[
         {"id": 1, "permissions": "view"}
-    ]
+    ],
+    organizations=[]
 )
 ```
+
+`set_resource_permissions` replaces the whole permission spec and returns
+GeoNode's asynchronous execution handle (`status`, `execution_id`,
+`status_url`). Omitted buckets are sent as `[]`, which removes them. Use
+`check_execution_status(execution_id)` to wait for `finished` or see a failure.
 
 ### User Management
 ```python
@@ -371,14 +377,16 @@ update_dataset_settings(
 
 ### Permissions
 - `get_resource_permissions`: View permissions
-- `set_resource_permissions`: Configure permissions
+- `set_resource_permissions`: Configure permissions (replaces the full spec)
+- `check_execution_status`: Poll an asynchronous execution and surface failures
 
 ## Supported GeoNode Versions
 
-This MCP server is designed to work with GeoNode 3.x and 4.x instances that provide the standard REST API v2. It supports:
+This MCP server is designed to work with GeoNode 3.x, 4.x, and 5.x instances that provide the standard REST API v2. It supports:
 
 - GeoNode 3.3+
 - GeoNode 4.0+
+- GeoNode 5.x
 - Custom GeoNode deployments with API v2
 
 ## API Coverage
