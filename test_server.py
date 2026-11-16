@@ -220,3 +220,149 @@ def test_check_execution_status_is_registered_in_cli():
     from mcp_geonode.cli import TOOL_NAMES
 
     assert "check_execution_status" in TOOL_NAMES
+
+
+def test_set_dataset_thumbnail_with_bbox(monkeypatch):
+    payload = {
+        "message": "Thumbnail correctly created.",
+        "success": True,
+        "thumbnail_url": "https://x/new.jpg",
+    }
+    fake = _ScriptedClient(payload)
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(
+        server.set_dataset_thumbnail(
+            42, [168.1685, 168.4698, -17.8268, -17.6403], zoom=10
+        )
+    )
+
+    assert result == payload
+    method, endpoint, kwargs = fake.calls[0]
+    assert (method, endpoint) == ("POST", "resources/42/set_thumbnail_from_bbox")
+    assert kwargs["data"] == {
+        "bbox": [168.1685, 168.4698, -17.8268, -17.6403],
+        "srid": "EPSG:4326",
+        "zoom": 10,
+    }
+
+
+def test_set_dataset_thumbnail_uses_dataset_extent(monkeypatch):
+    fake = _ScriptedClient(
+        {
+            "resource": {
+                "extent": {
+                    "coords": [168.1685, -17.8268, 168.4698, -17.6403],
+                    "srid": "EPSG:4326",
+                }
+            }
+        },
+        {
+            "message": "Thumbnail correctly created.",
+            "success": True,
+            "thumbnail_url": "https://x/new.jpg",
+        },
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42))
+
+    assert result["success"] is True
+    assert fake.calls[0][0:2] == ("GET", "resources/42")
+    method, endpoint, kwargs = fake.calls[1]
+    assert (method, endpoint) == ("POST", "resources/42/set_thumbnail_from_bbox")
+    assert kwargs["data"] == {
+        "bbox": [168.1685, 168.4698, -17.8268, -17.6403],
+        "srid": "EPSG:4326",
+    }
+
+
+def test_set_dataset_thumbnail_reports_http_body(monkeypatch):
+    fake = _ScriptedClient(
+        _http_error(403, '{"message": "You do not have permission to set this thumbnail."}')
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42, [1, 2, 3, 4]))
+
+    assert "HTTP 403" in result["error"]
+    assert "do not have permission" in result["error"]
+
+
+def test_set_dataset_thumbnail_reports_missing_dataset_on_extent_lookup(monkeypatch):
+    fake = _ScriptedClient(_http_error(404, '{"message": "Resource not found."}'))
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42))
+
+    assert len(fake.calls) == 1
+    assert "HTTP 404" in result["error"]
+
+
+def test_set_dataset_thumbnail_rejects_invalid_bbox(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    for bbox in (
+        [1, 2, 3],
+        [1, 2, 3, float("nan")],
+        [1, 2, 3, float("inf")],
+        [1, 2, "4", 5],
+        [True, 2, 3, 4],
+    ):
+        result = _run(server.set_dataset_thumbnail(42, bbox))
+        assert "bbox" in result["error"].lower()
+
+    assert fake.calls == []
+
+
+def test_set_dataset_thumbnail_rejects_invalid_srid_and_zoom(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    assert "srid" in _run(server.set_dataset_thumbnail(42, [1, 2, 3, 4], srid=""))["error"]
+    assert "zoom" in _run(server.set_dataset_thumbnail(42, [1, 2, 3, 4], zoom=-1))["error"]
+    assert fake.calls == []
+
+
+def test_set_dataset_thumbnail_reports_missing_extent(monkeypatch):
+    fake = _ScriptedClient({"resource": {}})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42))
+
+    assert "extent" in result["error"].lower()
+    assert len(fake.calls) == 1
+
+
+def test_set_dataset_thumbnail_timeout_verifies_new_thumbnail(monkeypatch):
+    fake = _ScriptedClient(
+        TimeoutError("timed out"),
+        {"resource": {"thumbnail_url": "https://x/new.jpg"}},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42, [1, 2, 3, 4]))
+
+    assert result["success"] is True
+    assert result["thumbnail_url"] == "https://x/new.jpg"
+    assert "timed out" in result["message"].lower()
+
+
+def test_set_dataset_thumbnail_timeout_without_thumbnail(monkeypatch):
+    fake = _ScriptedClient(
+        TimeoutError("timed out"),
+        {"resource": {"thumbnail_url": None}},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.set_dataset_thumbnail(42, [1, 2, 3, 4]))
+
+    assert "error" in result
+    assert "may still" in result["error"].lower()
+
+
+def test_set_dataset_thumbnail_is_registered_in_cli():
+    from mcp_geonode.cli import TOOL_NAMES
+
+    assert "set_dataset_thumbnail" in TOOL_NAMES

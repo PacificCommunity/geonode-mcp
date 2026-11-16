@@ -461,6 +461,36 @@ update_dataset_settings(
 When `group_name` is provided, the tool resolves the group through `/api/v2/groups` and updates `/api/v2/datasets/{id}` with:
 `{"group": {"pk": <resolved_pk>}}`.
 
+#### `set_dataset_thumbnail`
+Generate a dataset thumbnail from a bounding box, or from the dataset's own
+extent when no bounding box is given.
+
+**Parameters:**
+- `dataset_id` (required): ID of the dataset
+- `bbox` (optional): `[west, east, south, north]`, that is
+  `[xmin, xmax, ymin, ymax]`. When omitted, the dataset extent is used.
+- `srid` (optional): CRS for an explicit bbox (default: `EPSG:4326`). Ignored
+  when the bbox comes from the dataset extent.
+- `zoom` (optional): Background zoom, must be >= 0.
+
+**Examples:**
+```python
+# Use the dataset's own extent
+set_dataset_thumbnail(dataset_id=42)
+
+# Use an explicit bbox and zoom
+set_dataset_thumbnail(
+    dataset_id=42,
+    bbox=[168.1685, 168.4698, -17.8268, -17.6403],
+    srid="EPSG:4326",
+    zoom=10,
+)
+```
+
+GeoNode returns `{"message", "success", "thumbnail_url"}` on success. If the
+request times out, the tool re-reads the dataset and reports the thumbnail if
+one is present.
+
 #### `list_linked_resources`
 List resources linked to a specific resource.
 

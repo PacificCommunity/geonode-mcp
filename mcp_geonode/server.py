@@ -9,6 +9,7 @@ It supports resource listing, searching, uploading, downloading, user management
 import asyncio
 import base64
 import logging
+import math
 import os
 import re
 from pathlib import Path
@@ -1729,6 +1730,154 @@ async def update_dataset_settings(
         return dataset_update_result
     except Exception as e:
         return {"error": f"Failed to update dataset settings: {e}"}
+
+
+@mcp.tool()
+async def set_dataset_thumbnail(
+    dataset_id: int,
+    bbox: Optional[List[float]] = None,
+    srid: str = "EPSG:4326",
+    zoom: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Generate a thumbnail for a dataset, optionally from a bounding box.
+
+    Args:
+        dataset_id: ID of the dataset
+        bbox: Bounding box as [west, east, south, north]
+            (xmin, xmax, ymin, ymax). When omitted, the dataset's extent is
+            used.
+        srid: CRS of an explicit bbox (default: EPSG:4326). Ignored when bbox
+            is omitted; the extent's SRID is used instead.
+        zoom: Optional background zoom for thumbnail generation (must be >= 0)
+
+    Returns:
+        Dictionary containing GeoNode's response, including ``thumbnail_url``
+    """
+    client = get_client()
+
+    if not isinstance(srid, str) or not srid.strip():
+        return {"error": "srid must be a non-empty string"}
+    if zoom is not None and zoom < 0:
+        return {"error": "zoom must be >= 0"}
+
+    if bbox is not None:
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            return {"error": "bbox must contain exactly four finite numbers"}
+        validated_bbox: List[float] = []
+        for value in bbox:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return {"error": "bbox must contain exactly four finite numbers"}
+            number = float(value)
+            if not math.isfinite(number):
+                return {"error": "bbox must contain exactly four finite numbers"}
+            validated_bbox.append(number)
+        bbox = validated_bbox
+        resolved_srid = srid
+    else:
+        try:
+            resource_result = await client.request("GET", f"resources/{dataset_id}")
+        except httpx.HTTPStatusError as e:
+            body = e.response.text or "<empty body>"
+            return {
+                "error": (
+                    f"HTTP {e.response.status_code} reading dataset "
+                    f"{dataset_id}: {body}"
+                )
+            }
+        except Exception as e:
+            return {"error": f"Failed to read dataset {dataset_id} extent: {e}"}
+
+        resource = _unwrap_resource(resource_result)
+        extent = resource.get("extent")
+        if not isinstance(extent, dict):
+            extent = {}
+        coords = extent.get("coords")
+        if not isinstance(coords, (list, tuple)) or len(coords) != 4:
+            return {
+                "error": (
+                    f"Dataset {dataset_id} has no usable extent; "
+                    "pass bbox explicitly"
+                )
+            }
+        try:
+            west, south, east, north = (float(value) for value in coords)
+        except (TypeError, ValueError):
+            return {
+                "error": (
+                    f"Dataset {dataset_id} has no usable extent; "
+                    "pass bbox explicitly"
+                )
+            }
+        if not all(math.isfinite(v) for v in (west, south, east, north)):
+            return {
+                "error": (
+                    f"Dataset {dataset_id} has no usable extent; "
+                    "pass bbox explicitly"
+                )
+            }
+        # GeoNode extent coords are [xmin, ymin, xmax, ymax]; the thumbnail
+        # endpoint expects [west, east, south, north].
+        bbox = [west, east, south, north]
+        resolved_srid = str(extent.get("srid") or srid)
+
+    payload: Dict[str, Any] = {"bbox": bbox, "srid": resolved_srid}
+    if zoom is not None:
+        payload["zoom"] = zoom
+
+    try:
+        return await client.request(
+            "POST",
+            f"resources/{dataset_id}/set_thumbnail_from_bbox",
+            data=payload,
+        )
+    except httpx.HTTPStatusError as e:
+        body = e.response.text or "<empty body>"
+        return {
+            "error": (
+                f"HTTP {e.response.status_code} setting thumbnail for "
+                f"dataset {dataset_id}: {body}"
+            )
+        }
+    except TimeoutError as e:
+        logger.warning(
+            "Thumbnail request for dataset %s timed out; checking whether it "
+            "was generated anyway",
+            dataset_id,
+        )
+        try:
+            verify_result = await client.request("GET", f"resources/{dataset_id}")
+        except Exception as verify_error:
+            return {
+                "error": (
+                    f"Thumbnail request timed out ({e}) and the follow-up "
+                    f"check failed: {verify_error}. The thumbnail may still "
+                    "have been generated."
+                )
+            }
+        thumbnail_url = _unwrap_resource(verify_result).get("thumbnail_url")
+        if thumbnail_url:
+            return {
+                "message": (
+                    "Thumbnail request timed out, but a follow-up check found "
+                    "a thumbnail."
+                ),
+                "success": True,
+                "thumbnail_url": thumbnail_url,
+                "note": (
+                    "The thumbnail may have been generated by the timed-out "
+                    "request."
+                ),
+            }
+        return {
+            "error": (
+                "Thumbnail request timed out and no thumbnail is present yet; "
+                "it may still be generated. Check the dataset again before "
+                "retrying."
+            )
+        }
+    except Exception as e:
+        return {"error": f"Failed to set dataset thumbnail: {e}"}
 
 
 @mcp.tool()
