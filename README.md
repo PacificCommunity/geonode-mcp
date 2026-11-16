@@ -13,6 +13,7 @@ A Model Context Protocol (MCP) server for interacting with GeoNode APIs. This se
 - **Upload**: Upload datasets (Shapefiles, GeoTIFFs, CSV) and documents
 - **Delete**: Remove resources from GeoNode
 - **Metadata Updates**: Update dataset titles, abstracts, and licenses
+- **Thumbnails**: Generate dataset thumbnails from a bounding box or the dataset extent
 
 ### User Management
 - **List Users**: Browse users with pagination
@@ -364,6 +365,7 @@ update_dataset_settings(
 - `delete_resource`: Remove resources
 - `update_dataset_metadata`: Update dataset metadata fields via metadata instance endpoint
 - `update_dataset_settings`: Update dataset-level fields via dataset endpoint
+- `set_dataset_thumbnail`: Generate a dataset thumbnail (bbox optional; defaults to the dataset extent)
 - `list_linked_resources`: Find linked resources
 
 ### Data Upload
@@ -397,6 +399,7 @@ The server implements the following GeoNode API endpoints:
 
 - `/api/v2/resources` - Resource listing and filtering
 - `/api/v2/resources/{id}` - Resource details and operations
+- `/api/v2/resources/{id}/set_thumbnail_from_bbox` - Dataset thumbnail generation
 - `/api/v2/assets/{id}/download` - Dataset asset downloads
 - `/api/v2/metadata/instance/{id}` - Dataset metadata updates via PATCH
 - `/api/v2/metadata/autocomplete/thesaurus/{name}/keywords` - Keyword ID lookup for metadata updates

@@ -29,6 +29,7 @@ TOOL_NAMES = (
     "delete_resource",
     "update_dataset_metadata",
     "update_dataset_settings",
+    "set_dataset_thumbnail",
     "list_users",
     "get_user_details",
     "create_user",
