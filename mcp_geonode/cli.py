@@ -18,6 +18,7 @@ TOOL_NAMES = (
     "get_configuration_status",
     "list_resources",
     "list_groups",
+    "create_group",
     "list_categories",
     "list_tkeywords",
     "get_resource_details",

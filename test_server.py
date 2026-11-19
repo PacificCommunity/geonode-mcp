@@ -366,3 +366,129 @@ def test_set_dataset_thumbnail_is_registered_in_cli():
     from mcp_geonode.cli import TOOL_NAMES
 
     assert "set_dataset_thumbnail" in TOOL_NAMES
+
+
+def test_create_group_sends_expected_payload(monkeypatch):
+    fake = _ScriptedClient({"group_profile": {"pk": 3, "title": "Pacific Data Hub"}})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("Pacific Data Hub", "Regional data", group_id=1))
+
+    assert result["group_profile"]["pk"] == 3
+    assert fake.calls == [
+        (
+            "POST",
+            "groups",
+            {
+                "data": {
+                    "title": "Pacific Data Hub",
+                    "slug": "pacific-data-hub",
+                    "description": "Regional data",
+                    "access": "public",
+                    "group": 1,
+                }
+            },
+        )
+    ]
+
+
+def test_create_group_accepts_explicit_slug_email_and_categories(monkeypatch):
+    fake = _ScriptedClient({"group_profile": {"pk": 4}})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    _run(
+        server.create_group(
+            "Coastal",
+            "Coastal data",
+            slug="coastal-data",
+            email="team@example.org",
+            access="private",
+            categories=["climate"],
+            group_id=2,
+        )
+    )
+
+    data = fake.calls[0][2]["data"]
+    assert data["slug"] == "coastal-data"
+    assert data["email"] == "team@example.org"
+    assert data["access"] == "private"
+    assert data["categories"] == ["climate"]
+    assert data["group"] == 2
+
+
+def test_create_group_rejects_blank_title(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("   ", "desc", group_id=1))
+
+    assert "error" in result
+    assert "title" in result["error"]
+    assert fake.calls == []
+
+
+def test_create_group_rejects_blank_description(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("Title", "  ", group_id=1))
+
+    assert "error" in result
+    assert "description" in result["error"]
+    assert fake.calls == []
+
+
+def test_create_group_rejects_unknown_access(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("Title", "desc", access="secret", group_id=1))
+
+    assert "error" in result
+    assert "access" in result["error"]
+    assert fake.calls == []
+
+
+def test_create_group_reuses_existing_group_id_when_omitted(monkeypatch):
+    fake = _ScriptedClient(
+        {
+            "group_profiles": [
+                {"title": "Existing", "group": {"pk": 9, "name": "existing"}}
+            ]
+        },
+        {"group_profile": {"pk": 5}},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("New Group", "desc"))
+
+    assert result["group_profile"]["pk"] == 5
+    assert fake.calls[0] == ("GET", "groups", {"params": {"page_size": 1}})
+    assert fake.calls[1][2]["data"]["group"] == 9
+
+
+def test_create_group_errors_when_no_placeholder_group_exists(monkeypatch):
+    fake = _ScriptedClient({"group_profiles": []})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("New Group", "desc"))
+
+    assert "error" in result
+    assert "group_id" in result["error"]
+    assert len(fake.calls) == 1
+
+
+def test_create_group_returns_error_on_api_failure(monkeypatch):
+    fake = _ScriptedClient(RuntimeError("HTTP 403"))
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.create_group("New Group", "desc", group_id=1))
+
+    assert "error" in result
+    assert "Failed to create group" in result["error"]
+
+
+def test_create_group_is_registered_in_cli():
+    from mcp_geonode.cli import TOOL_NAMES
+
+    assert "create_group" in TOOL_NAMES
