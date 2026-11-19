@@ -275,6 +275,30 @@ list_groups(search="maritime")
 
 The tool queries `/api/v2/groups?search=...` and then applies a fallback filter on group titles and names.
 
+#### `create_group`
+Create a new group via `POST /api/v2/groups`. Requires staff or superuser credentials; other users get HTTP 403.
+
+**Parameters:**
+- `title` (required): Group title, must be unique
+- `description` (required): Group description
+- `slug` (optional): URL slug; derived from the title when omitted
+- `email` (optional): Contact email
+- `access` (optional): `"public"`, `"public-invite"`, or `"private"` (default: `"public"`)
+- `categories` (optional): List of group category slugs
+- `group_id` (optional): Django auth group pk required by the API serializer
+
+**Example:**
+```python
+create_group(
+    title="Pacific Data Hub",
+    description="Regional data team",
+    email="data@pacificdata.org",
+    access="public-invite",
+)
+```
+
+GeoNode's serializer requires a `group` pk even though `GroupProfile.save()` replaces it with a new auth group named after the slug. When `group_id` is omitted, the tool reuses the pk of an existing group profile; if no group exists yet, pass `group_id` explicitly.
+
 #### `list_categories`
 List available GeoNode categories.
 

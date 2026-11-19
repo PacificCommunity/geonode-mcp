@@ -12,6 +12,7 @@ import logging
 import math
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
@@ -853,6 +854,110 @@ async def list_groups(
         return result
     except Exception as e:
         raise RuntimeError(f"Failed to list groups: {e}") from e
+
+
+def _slugify_group_title(value: str) -> str:
+    """Build a GeoNode-compatible slug from a group title."""
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", ascii_value.lower()).strip("-")
+
+
+@mcp.tool()
+async def create_group(
+    title: str,
+    description: str,
+    slug: Optional[str] = None,
+    email: Optional[str] = None,
+    access: str = "public",
+    categories: Optional[List[str]] = None,
+    group_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Create a new GeoNode group.
+
+    Requires staff or superuser credentials: GeoNode rejects group creation
+    from regular users and group managers with HTTP 403.
+
+    Args:
+        title: Group title (must be unique)
+        description: Group description (required by GeoNode)
+        slug: URL slug (optional). Derived from the title when omitted.
+        email: Contact email (optional)
+        access: One of "public", "public-invite", "private" (default: public)
+        categories: Group category slugs, e.g. ["climate"] (optional)
+        group_id: Django auth group pk required by the API serializer. When
+            omitted, the pk of an existing group profile is reused, because
+            GeoNode's GroupProfile.save() replaces it with a new auth group
+            named after the slug.
+
+    Returns:
+        Dictionary containing the created group profile
+    """
+    client = get_client()
+
+    title_clean = (title or "").strip()
+    if not title_clean:
+        return {"error": "title must be a non-empty string"}
+
+    description_clean = (description or "").strip()
+    if not description_clean:
+        return {"error": "description must be a non-empty string"}
+
+    access_clean = (access or "").strip().lower()
+    if access_clean not in {"public", "public-invite", "private"}:
+        return {"error": "access must be one of: public, public-invite, private"}
+
+    slug_clean = (slug or "").strip() or _slugify_group_title(title_clean)
+    if not slug_clean:
+        return {
+            "error": (
+                f"Could not derive a slug from title '{title_clean}'. "
+                "Pass slug explicitly."
+            )
+        }
+
+    resolved_group_id = group_id
+    if resolved_group_id is None:
+        try:
+            existing = await client.request("GET", "groups", params={"page_size": 1})
+        except Exception as e:
+            return {"error": f"Failed to resolve a group id for creation: {e}"}
+
+        profiles = existing.get("group_profiles") or existing.get("groups") or []
+        if not profiles:
+            return {
+                "error": (
+                    "GeoNode requires a Django auth group id to create a group "
+                    "and no group profiles exist yet. Pass group_id explicitly."
+                )
+            }
+        resolved_group_id = (profiles[0].get("group") or {}).get("pk")
+        if resolved_group_id is None:
+            return {
+                "error": (
+                    "Could not read a Django auth group id from the existing "
+                    "group profile. Pass group_id explicitly."
+                )
+            }
+
+    data: Dict[str, Any] = {
+        "title": title_clean,
+        "slug": slug_clean,
+        "description": description_clean,
+        "access": access_clean,
+        "group": resolved_group_id,
+    }
+    if email:
+        data["email"] = email
+    if categories is not None:
+        data["categories"] = categories
+
+    try:
+        result = await client.request("POST", "groups", data=data)
+        return result
+    except Exception as e:
+        return {"error": f"Failed to create group: {e}"}
 
 
 @mcp.tool()

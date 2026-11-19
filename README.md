@@ -356,6 +356,7 @@ update_dataset_settings(
 ### Resource Management
 - `list_resources`: List and filter resources
 - `list_groups`: List and search groups
+- `create_group`: Create a group (staff/superuser only)
 - `list_categories`: List available categories
 - `list_tkeywords`: List thesaurus taxonomy keywords
 - `get_resource_details`: Get basic resource information
