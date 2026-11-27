@@ -100,6 +100,127 @@ def test_download_resource_without_urls(monkeypatch):
     assert "error" in result
 
 
+def test_upload_document_posts_to_importer(monkeypatch, tmp_path):
+    pdf = tmp_path / "policy.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    fake = _ScriptedClient({"execution_id": "exec-1"})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.upload_document(file_path=str(pdf), title="National Policy"))
+
+    method, endpoint, kwargs = fake.calls[0]
+    assert (method, endpoint) == ("POST", "uploads/upload")
+    assert kwargs["data"] == {"action": "document_upload", "title": "National Policy"}
+    assert kwargs["files"]["base_file"][0] == "policy.pdf"
+    assert result == {"execution_id": "exec-1"}
+
+
+def test_upload_document_remote_url_uses_json_payload(monkeypatch):
+    fake = _ScriptedClient({"execution_id": "exec-2"})
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(
+        server.upload_document(
+            doc_url="https://example.org/report.pdf", extension=".pdf"
+        )
+    )
+
+    method, endpoint, kwargs = fake.calls[0]
+    assert (method, endpoint) == ("POST", "uploads/upload")
+    assert kwargs["data"] == {
+        "action": "document_upload",
+        "title": "Uploaded Document",
+        "extension": "pdf",
+        "url": "https://example.org/report.pdf",
+    }
+    assert kwargs["files"] is None
+    assert result == {"execution_id": "exec-2"}
+
+
+def test_upload_document_patches_abstract_and_publish_after_import(
+    monkeypatch, tmp_path
+):
+    pdf = tmp_path / "plan.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    fake = _ScriptedClient(
+        {"execution_id": "exec-3"},
+        {"status": "finished", "output_params": {"resources": [{"id": 42}]}},
+        {},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(
+        server.upload_document(file_path=str(pdf), abstract="Summary", publish=True)
+    )
+
+    assert fake.calls[1] == ("GET", "executionrequest/exec-3", {})
+    assert fake.calls[2] == (
+        "PATCH",
+        "documents/42",
+        {
+            "data": {
+                "abstract": "Summary",
+                "is_published": True,
+                "is_approved": True,
+            }
+        },
+    )
+    assert result["execution_id"] == "exec-3"
+    assert result["document_id"] == 42
+    assert result["applied"] == {
+        "abstract": "Summary",
+        "is_published": True,
+        "is_approved": True,
+    }
+
+
+def test_upload_document_reports_failed_import(monkeypatch, tmp_path):
+    pdf = tmp_path / "broken.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    fake = _ScriptedClient(
+        {"execution_id": "exec-4"},
+        {"status": "failed", "log": "boom"},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    result = _run(server.upload_document(file_path=str(pdf), publish=True))
+
+    assert result["error"] == "Document import failed"
+    assert result["execution"]["status"] == "failed"
+    assert all(call[0] != "PATCH" for call in fake.calls)
+
+
+def test_upload_document_warns_when_import_does_not_finish(monkeypatch, tmp_path):
+    pdf = tmp_path / "slow.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    fake = _ScriptedClient(
+        {"execution_id": "exec-5"},
+        {"status": "running"},
+        {"status": "running"},
+    )
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+    monkeypatch.setattr(server, "DOCUMENT_IMPORT_MAX_POLLS", 2)
+    monkeypatch.setattr(server, "DOCUMENT_IMPORT_POLL_INTERVAL_SECONDS", 0)
+
+    result = _run(server.upload_document(file_path=str(pdf), publish=True))
+
+    assert "warnings" in result
+    assert "did not finish" in result["warnings"][0]
+    assert all(call[0] != "PATCH" for call in fake.calls)
+
+
+def test_upload_document_rejects_missing_and_conflicting_inputs(monkeypatch):
+    fake = _ScriptedClient()
+    monkeypatch.setattr(server, "get_client", lambda: fake)
+
+    assert "error" in _run(server.upload_document())
+    assert "error" in _run(
+        server.upload_document(file_path="/nope.pdf", doc_url="https://x/y.pdf")
+    )
+    assert "error" in _run(server.upload_document(file_path="/does/not/exist.pdf"))
+    assert fake.calls == []
+
+
 class _ScriptedClient:
     """Returns or raises each scripted response in order, recording calls."""
 

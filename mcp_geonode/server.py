@@ -172,6 +172,11 @@ _CONTENT_DISPOSITION_FILENAME_PATTERN = re.compile(
 )
 PERMISSION_RETRY_DELAY_SECONDS = 1.0
 
+# The importer processes documents asynchronously; only used when the caller
+# asks for metadata that the importer cannot set at creation time.
+DOCUMENT_IMPORT_POLL_INTERVAL_SECONDS = 1.0
+DOCUMENT_IMPORT_MAX_POLLS = 60
+
 
 def _safe_filename(name: Optional[str], fallback: str) -> str:
     """Reduce an untrusted name to a safe basename.
@@ -1307,9 +1312,18 @@ async def upload_document(
     title: str = "Uploaded Document",
     abstract: Optional[str] = None,
     extension: Optional[str] = None,
+    publish: bool = False,
 ) -> Dict[str, Any]:
     """
-    Upload a document to GeoNode or reference a remote document.
+    Upload a document through the GeoNode importer API.
+
+    Requires a GeoNode release with the document importer handler
+    (post-5.1.1). The import is asynchronous: the response carries an
+    ``execution_id`` to follow with ``check_upload_status``.
+
+    ``abstract`` and ``publish`` are not importer fields. When either is set
+    the tool waits for the import to finish and patches the new document; if
+    it does not finish in time the execution is returned with a warning.
 
     Args:
         file_path: Path to local file to upload (optional)
@@ -1317,45 +1331,115 @@ async def upload_document(
         title: Title for the document
         abstract: Abstract/description for the document (optional)
         extension: File extension for remote documents (required if URL doesn't have extension)
+        publish: Publish and approve the document after upload (optional)
 
     Returns:
-        Dictionary containing upload status
+        Dictionary containing the importer response (execution_id)
     """
     client = get_client()
 
     if not file_path and not doc_url:
         return {"error": "Either file_path or doc_url must be provided"}
+    if file_path and doc_url:
+        return {"error": "Provide either file_path or doc_url, not both"}
+    if file_path and not os.path.exists(file_path):
+        return {"error": f"File not found: {file_path}"}
+
+    data: Dict[str, Any] = {"action": "document_upload", "title": title}
+    if extension:
+        data["extension"] = extension.lstrip(".")
+
+    files = None
+    if file_path:
+        with open(file_path, "rb") as f:
+            files = {
+                "base_file": (
+                    os.path.basename(file_path),
+                    f.read(),
+                    "application/octet-stream",
+                )
+            }
+    else:
+        data["url"] = doc_url
 
     try:
-        data = {"title": title}
-        if abstract:
-            data["abstract"] = abstract
-
-        files = None
-        if file_path:
-            # Local file upload
-            if not os.path.exists(file_path):
-                return {"error": f"File not found: {file_path}"}
-
-            with open(file_path, "rb") as f:
-                files = {
-                    "doc_file": (
-                        os.path.basename(file_path),
-                        f.read(),
-                        "application/octet-stream",
-                    )
-                }
-        else:
-            # Remote document reference
-            data["doc_url"] = doc_url
-            if extension:
-                data["extension"] = extension
-
         async with upload_semaphore:
-            result = await client.request("POST", "documents", data=data, files=files)
-        return result
+            result = await client.request(
+                "POST", "uploads/upload", data=data, files=files
+            )
     except Exception as e:
         return {"error": f"Failed to upload document: {e}"}
+
+    patch: Dict[str, Any] = {}
+    if abstract:
+        patch["abstract"] = abstract
+    if publish:
+        patch["is_published"] = True
+        patch["is_approved"] = True
+    if not patch:
+        return result
+
+    execution_id = result.get("execution_id")
+    if not execution_id:
+        return {
+            **result,
+            "warnings": ["No execution_id returned; abstract/publish not applied."],
+        }
+
+    execution: Dict[str, Any] = {}
+    for attempt in range(DOCUMENT_IMPORT_MAX_POLLS):
+        try:
+            execution = await client.request("GET", f"executionrequest/{execution_id}")
+        except Exception as e:
+            return {
+                **result,
+                "warnings": [f"Could not check the document import: {e}"],
+            }
+
+        if execution.get("status") in {"finished", "failed"}:
+            break
+        if attempt + 1 < DOCUMENT_IMPORT_MAX_POLLS:
+            await asyncio.sleep(DOCUMENT_IMPORT_POLL_INTERVAL_SECONDS)
+
+    status = execution.get("status")
+    if status == "failed":
+        return {
+            "error": "Document import failed",
+            "execution_id": execution_id,
+            "execution": execution,
+        }
+    if status != "finished":
+        return {
+            **result,
+            "warnings": [
+                "Document import did not finish within "
+                f"{DOCUMENT_IMPORT_MAX_POLLS} polls; abstract/publish not applied."
+            ],
+        }
+
+    resources = (execution.get("output_params") or {}).get("resources") or []
+    document_id = resources[0].get("id") if resources else None
+    if document_id is None:
+        return {
+            **result,
+            "warnings": [
+                "Import finished but the document id was not reported; "
+                "abstract/publish not applied."
+            ],
+            "execution": execution,
+        }
+
+    try:
+        async with upload_semaphore:
+            await client.request("PATCH", f"documents/{document_id}", data=patch)
+    except Exception as e:
+        return {
+            **result,
+            "document_id": document_id,
+            "warnings": [f"Document created but metadata patch failed: {e}"],
+        }
+
+    return {**result, "document_id": document_id, "applied": patch}
 
 
 @mcp.tool()
