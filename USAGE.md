@@ -559,12 +559,21 @@ upload_dataset(
 #### `upload_document`
 Upload documents or reference remote documents.
 
+On GeoNode releases with the document importer handler (post-5.1.1), this
+tool uploads through `POST /api/v2/uploads/upload` with
+`action=document_upload` instead of the form or the read-only documents
+endpoint. The import is asynchronous: the response contains an
+`execution_id` for `check_upload_status`. `abstract` and `publish` are not
+importer fields, so when either is set the tool waits for the import to
+finish and applies them with `PATCH /api/v2/documents/{id}`.
+
 **Parameters:**
 - `file_path` (optional): Path to local file
 - `doc_url` (optional): URL of remote document
 - `title` (required): Title for the document
 - `abstract` (optional): Description
 - `extension` (optional): File extension for remote docs
+- `publish` (optional): Publish and approve the document after upload (default `false`)
 
 **Examples:**
 ```python
